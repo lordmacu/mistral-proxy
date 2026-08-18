@@ -1,0 +1,24 @@
+# Credentials — never commit
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# APK reverse-engineering artifacts (large/generated)
+*.apkm
+*.apk
+*.aab
+extracted/
+jadx-out/
+rn-decompiled/
+hermes-engine-*.tgz
+modules/
+
+# macOS
+.DS_Store

@@ -1,0 +1,15 @@
+services:
+  mistral-proxy:
+    build: .
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env
+    environment:
+      - DEBUG=${DEBUG:-false}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
