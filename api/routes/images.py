@@ -184,17 +184,29 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
                     for chunk in val:
                         if isinstance(chunk, dict) and chunk.get("type") == "image_url":
                             meta = chunk.get("meta") or {}
-                            image_url = meta.get("uri") or chunk.get("url")
+                            image_url = (
+                                chunk.get("imageUrl")       # actual field name from APK SSE
+                                or meta.get("uri")
+                                or chunk.get("url")
+                            )
 
                 # Individual chunk append/replace
                 if "/contentChunks" in path and isinstance(val, dict):
                     if val.get("type") == "image_url":
                         meta = val.get("meta") or {}
-                        image_url = meta.get("uri") or val.get("url")
+                        image_url = (
+                            val.get("imageUrl")             # actual field name from APK SSE
+                            or meta.get("uri")
+                            or val.get("url")
+                        )
                     elif val.get("type") == "tool_call":
                         args = val.get("publicArguments") or {}
                         if isinstance(args, dict):
                             revised_prompt = args.get("prompt")
+                        # Fallback: publicResult.url from the generate_image tool response
+                        result = val.get("publicResult") or {}
+                        if isinstance(result, dict) and result.get("url") and not image_url:
+                            image_url = result["url"]
 
     return image_url, revised_prompt
 
