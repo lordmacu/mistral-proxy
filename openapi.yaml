@@ -1,0 +1,1397 @@
+openapi: 3.0.3
+info:
+  title: Mistral Le Chat Proxy
+  description: |
+    OpenAI-compatible proxy for chat.mistral.ai — reverse-engineered from APK v2.8.0.
+    All endpoints require a valid Ory session token (`ory_st_...`) either pre-loaded via
+    the `MISTRAL_SESSION_TOKEN` env var or obtained via `POST /v1/auth/login`.
+  version: 1.0.0
+  contact: {}
+
+servers:
+  - url: http://localhost:8000
+    description: Local proxy
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Ory session token (ory_st_...)
+
+  schemas:
+    # ── Auth ──────────────────────────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+        first_name: { type: string, default: User }
+        last_name: { type: string, default: "" }
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string, example: "ory_st_..." }
+        token_type: { type: string, default: bearer }
+
+    # ── Chat ──────────────────────────────────────────────────────────────
+    MessagePart:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [text, image_url] }
+        text: { type: string }
+        image_url:
+          type: object
+          properties:
+            url: { type: string, description: "data: URI or https:// URL" }
+
+    Message:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [system, user, assistant] }
+        content:
+          oneOf:
+            - type: string
+            - type: array
+              items: { $ref: '#/components/schemas/MessagePart' }
+
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          default: mistral-medium-latest
+          description: "Ignored by Mistral server — model is selected server-side. Pass any valid ID for OpenAI compatibility."
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        stream: { type: boolean, default: true }
+        conversation_id:
+          type: string
+          format: uuid
+          description: "Continue an existing conversation. Also accepted via X-Conversation-Id header."
+        features:
+          type: array
+          items: { type: string }
+          example: []
+          description: 'e.g. ["beta-imagegen"] for image generation, ["beta-reasoning"] for thinking mode'
+        incognito: { type: boolean, default: false }
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id: { type: string }
+        object: { type: string, example: chat.completion }
+        created: { type: integer }
+        model: { type: string }
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              message: { $ref: '#/components/schemas/Message' }
+              finish_reason: { type: string }
+        usage:
+          type: object
+          properties:
+            prompt_tokens: { type: integer }
+            completion_tokens: { type: integer }
+            total_tokens: { type: integer }
+        conversation_id:
+          type: string
+          format: uuid
+          description: "Use this in the next request to continue the conversation."
+
+    # ── Models ────────────────────────────────────────────────────────────
+    ModelCard:
+      type: object
+      properties:
+        id: { type: string }
+        object: { type: string, default: model }
+        description: { type: string }
+        owned_by: { type: string, default: mistral }
+        created: { type: integer }
+
+    ModelList:
+      type: object
+      properties:
+        object: { type: string, default: list }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ModelCard' }
+
+    # ── Images ────────────────────────────────────────────────────────────
+    ImageGenerationRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: { type: string }
+        n: { type: integer, default: 1 }
+        size: { type: string, default: 1024x1024 }
+        model: { type: string, default: mistral-medium-latest }
+        response_format: { type: string, default: url }
+
+    ImageGenerationResponse:
+      type: object
+      properties:
+        created: { type: integer }
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string }
+
+    # ── Audio ─────────────────────────────────────────────────────────────
+    AudioSpeechRequest:
+      type: object
+      required: [input]
+      properties:
+        input: { type: string }
+        voice: { type: string, default: alloy }
+        response_format: { type: string, default: wav }
+        speed: { type: number, default: 1.0 }
+
+    AudioTranscriptionResponse:
+      type: object
+      properties:
+        text: { type: string }
+
+    AudioSpeakRequest:
+      type: object
+      required: [chat_id, message_id]
+      properties:
+        chat_id: { type: string, format: uuid }
+        message_id: { type: string, format: uuid }
+        message_version: { type: integer, default: 0 }
+
+    # ── Conversations ─────────────────────────────────────────────────────
+    ConversationItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        pinned: { type: boolean }
+        projectId: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ConversationList:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ConversationItem' }
+        next_cursor: { type: string, nullable: true }
+
+    ConversationMessages:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              role: { type: string }
+              content: { type: string }
+              createdAt: { type: string, format: date-time }
+
+    PatchConversationRequest:
+      type: object
+      properties:
+        title: { type: string }
+
+    PinRequest:
+      type: object
+      required: [pinned]
+      properties:
+        pinned: { type: boolean }
+
+    # ── Users / Reactions ─────────────────────────────────────────────────
+    ReactionRequest:
+      type: object
+      required: [message_id, chat_id]
+      properties:
+        message_id: { type: string, format: uuid }
+        chat_id: { type: string, format: uuid }
+        version: { type: integer, default: 0 }
+        reaction:
+          type: string
+          enum: [like, dislike, neutral]
+          default: neutral
+          description: "neutral = remove reaction"
+
+    # ── Memory ────────────────────────────────────────────────────────────
+    MemoryToggle:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+
+    # ── Connectors ────────────────────────────────────────────────────────
+    PermissionUpdate:
+      type: object
+      required: [function_name, integration_id, integration_name]
+      properties:
+        function_name: { type: string, example: search_emails }
+        integration_id: { type: string, example: gmail }
+        integration_name: { type: string, example: Gmail }
+        permission:
+          type: string
+          enum: [allow, ask]
+          default: allow
+
+    PermissionsBody:
+      type: object
+      required: [updates]
+      properties:
+        updates:
+          type: array
+          items: { $ref: '#/components/schemas/PermissionUpdate' }
+
+    # ── AFP ───────────────────────────────────────────────────────────────
+    AFPArticleBody:
+      type: object
+      required: [article_id]
+      properties:
+        article_id: { type: string }
+
+    # ── Skills / Tasks ────────────────────────────────────────────────────
+    WorkflowStartRequest:
+      type: object
+      required: [workflow_version_id]
+      properties:
+        workflow_version_id: { type: string, format: uuid }
+        input: { type: object, default: {} }
+        assistant_message_key: { type: object, default: {} }
+
+    WorkflowInputRequest:
+      type: object
+      required: [workflow_version_id, execution_id, custom_task_id, input]
+      properties:
+        workflow_version_id: { type: string, format: uuid }
+        execution_id: { type: string, format: uuid }
+        custom_task_id: { type: string }
+        input: { type: string }
+
+    ProjectChatBody:
+      type: object
+      required: [chat_id]
+      properties:
+        chat_id: { type: string, format: uuid }
+
+    # ── Vibe Code ─────────────────────────────────────────────────────────
+    VibeProjectBody:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        repositories:
+          type: array
+          items: { type: object }
+          default: []
+
+    VibeSessionBody:
+      type: object
+      required: [project_id]
+      properties:
+        project_id: { type: string, format: uuid }
+
+    VibeMessageBody:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+
+    VibeRespondBody:
+      type: object
+      required: [callback_id, response]
+      properties:
+        callback_id: { type: string }
+        response: { type: object }
+
+paths:
+  # ── Auth ──────────────────────────────────────────────────────────────────
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Email/password → Ory session token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { description: Invalid credentials }
+
+  /v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Create a new account (caller supplies email + password)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+
+  /v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current auth status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  authenticated: { type: boolean }
+
+  # ── Chat ──────────────────────────────────────────────────────────────────
+  /v1/chat/completions:
+    post:
+      tags: [Chat]
+      summary: OpenAI-compatible chat completions (stream, vision, audio)
+      description: |
+        Two-step proxy: creates chat via `message.newChat` tRPC, then streams via `/api/chat`.
+        Set `stream: true` (default) for SSE. Non-streaming returns full response.
+        Pass `conversation_id` or `X-Conversation-Id` header to continue an existing conversation.
+        Rate limit fallback: when auth account hits 6200, proxy transparently retries via anonymous session.
+      parameters:
+        - in: header
+          name: X-Conversation-Id
+          schema: { type: string, format: uuid }
+          description: Alternative to conversation_id in body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatCompletionRequest' }
+            examples:
+              simple:
+                summary: Simple message
+                value:
+                  model: mistral-medium-latest
+                  messages: [{role: user, content: Hello!}]
+                  stream: true
+              continue:
+                summary: Continue conversation
+                value:
+                  model: mistral-medium-latest
+                  messages: [{role: user, content: And what else?}]
+                  conversation_id: "00000000-0000-0000-0000-000000000000"
+              vision:
+                summary: Vision (image URL)
+                value:
+                  model: mistral-medium-latest
+                  messages:
+                    - role: user
+                      content:
+                        - {type: text, text: "What is in this image?"}
+                        - {type: image_url, image_url: {url: "https://example.com/img.jpg"}}
+      responses:
+        '200':
+          description: SSE stream or full JSON depending on `stream` field
+          headers:
+            X-Conversation-Id:
+              schema: { type: string }
+              description: UUID of the conversation — use in next request
+          content:
+            text/event-stream:
+              schema: { type: string }
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatCompletionResponse' }
+
+  # ── Models ────────────────────────────────────────────────────────────────
+  /v1/models:
+    get:
+      tags: [Models]
+      summary: List available models
+      description: "Returns 10 hardcoded models (fallback) or live list from api.mistral.ai if MISTRAL_API_KEY is set."
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelList' }
+
+  /v1/models/{model_id}:
+    get:
+      tags: [Models]
+      summary: Get a specific model
+      security: []
+      parameters:
+        - in: path
+          name: model_id
+          required: true
+          schema: { type: string }
+          example: mistral-medium-latest
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelCard' }
+        '404': { description: Model not found }
+
+  # ── Images ────────────────────────────────────────────────────────────────
+  /v1/images/generations:
+    post:
+      tags: [Images]
+      summary: OpenAI-compatible image generation
+      description: "Internally sends features:[\"beta-imagegen\"] to /api/chat and extracts the image_url from SSE contentChunks."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImageGenerationRequest' }
+            example:
+              prompt: "A futuristic city at sunset"
+              n: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageGenerationResponse' }
+
+  # ── Audio ─────────────────────────────────────────────────────────────────
+  /v1/audio/speech:
+    post:
+      tags: [Audio]
+      summary: "TTS: text → WAV 24 kHz mono"
+      description: "Creates a temporary chat internally, streams /api/read-aloud (raw float32 PCM), converts to 16-bit WAV."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AudioSpeechRequest' }
+            example:
+              input: "Hello, this is a test."
+      responses:
+        '200':
+          description: WAV audio
+          content:
+            audio/wav:
+              schema: { type: string, format: binary }
+
+  /v1/audio/transcriptions:
+    post:
+      tags: [Audio]
+      summary: "STT: audio → text (Whisper-compatible)"
+      description: |
+        Uploads audio via `file.uploadFile` tRPC → PUT to Azure SAS URL → calls
+        `message.transcribeFromSignedUrl`. Accepts multipart/form-data with `file` field.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                model: { type: string, default: whisper-1 }
+      responses:
+        '200':
+          description: Transcript
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AudioTranscriptionResponse' }
+
+  /v1/audio/speak:
+    post:
+      tags: [Audio]
+      summary: Read-aloud an existing message by IDs → WAV
+      description: "Does NOT create a new chat. Reads a stored message via /api/read-aloud."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AudioSpeakRequest' }
+      responses:
+        '200':
+          description: WAV audio
+          content:
+            audio/wav:
+              schema: { type: string, format: binary }
+
+  # ── Conversations ─────────────────────────────────────────────────────────
+  /v1/conversations:
+    get:
+      tags: [Conversations]
+      summary: List conversations (paginated, cursor support)
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: product_type
+          schema: { type: string, default: chat }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationList' }
+
+  /v1/conversations/{conversation_id}:
+    get:
+      tags: [Conversations]
+      summary: Get conversation metadata (title, pinned, projectId)
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationItem' }
+
+    patch:
+      tags: [Conversations]
+      summary: Rename conversation
+      description: "Calls tRPC chat.updateTitle({chatId, userTitle})"
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchConversationRequest' }
+            example:
+              title: "My renamed chat"
+      responses:
+        '200': { description: OK }
+
+    delete:
+      tags: [Conversations]
+      summary: Delete conversation
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Deleted }
+
+  /v1/conversations/{conversation_id}/messages:
+    get:
+      tags: [Conversations]
+      summary: List all messages in a conversation
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationMessages' }
+
+  /v1/conversations/{conversation_id}/share:
+    post:
+      tags: [Conversations]
+      summary: Share conversation → returns share URL
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  share_id: { type: string, format: uuid }
+                  url: { type: string, example: "https://chat.mistral.ai/share/..." }
+
+  /v1/conversations/{conversation_id}/pin:
+    post:
+      tags: [Conversations]
+      summary: Pin or unpin a conversation
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PinRequest' }
+      responses:
+        '200': { description: OK }
+
+  /v1/conversations/{conversation_id}/cancel:
+    post:
+      tags: [Conversations]
+      summary: Cancel an in-progress AI generation
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Canceled }
+
+  /v1/conversations/{conversation_id}/search:
+    get:
+      tags: [Conversations]
+      summary: Search messages within a conversation
+      parameters:
+        - in: path
+          name: conversation_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # ── Users / Settings ──────────────────────────────────────────────────────
+  /v1/users/me:
+    get:
+      tags: [Users]
+      summary: Session info + rate limits combined
+      responses:
+        '200': { description: OK }
+
+  /v1/users/limits:
+    get:
+      tags: [Users]
+      summary: Rate limits and quotas (message_send, deep_research, etc.)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message_send: { remainingPoints: 20, points: 40 }
+                  deep_research: { remainingPoints: 5, points: 5 }
+
+  /v1/users/settings:
+    get:
+      tags: [Users]
+      summary: "55+ org feature flags (scheduledTasksEnabled, vibeCodeWebEnabled, …)"
+      description: "Each flag is {\"value\": true|false}. Some have object values e.g. appName:{\"value\":{\"en\":\"Vibe\"}}."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  registrySkillsEnabled: { value: true }
+                  scheduledTasksEnabled: { value: true }
+                  vibeCodeWebEnabled: { value: true }
+
+  /v1/search:
+    get:
+      tags: [Users]
+      summary: Cross-search chats, messages, and workspace
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: scope
+          schema:
+            type: string
+            enum: [all, chats, messages, workspace]
+            default: all
+      responses:
+        '200': { description: OK }
+
+  /v1/messages/reactions:
+    post:
+      tags: [Users]
+      summary: Add or remove a reaction from a message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReactionRequest' }
+            example:
+              message_id: "00000000-0000-0000-0000-000000000001"
+              chat_id: "00000000-0000-0000-0000-000000000002"
+              version: 0
+              reaction: like
+      responses:
+        '200': { description: OK }
+
+  # ── Memory ────────────────────────────────────────────────────────────────
+  /v1/memory:
+    get:
+      tags: [Memory]
+      summary: "Check if memory feature is enabled → bare true or false"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: boolean }
+
+  /v1/memory/toggle:
+    post:
+      tags: [Memory]
+      summary: Enable or disable cross-conversation memory
+      description: "Calls tRPC memory.toggleFeatureActivation({isEnabled: bool})"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemoryToggle' }
+      responses:
+        '200': { description: OK }
+
+  # ── Connectors ────────────────────────────────────────────────────────────
+  /v1/connectors:
+    get:
+      tags: [Connectors]
+      summary: "List 16 connectors → {items:[…]}"
+      parameters:
+        - in: query
+          name: chat_id
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        dbName: { type: string, example: google_drive }
+                        displayName: { type: string }
+                        setupStatus: { type: string, enum: [configuration-needed, ready] }
+                        supportedAuthMethods:
+                          type: array
+                          items: { type: object }
+
+  /v1/connectors/{connector_id}:
+    get:
+      tags: [Connectors]
+      summary: Get connector detail (UUID, not dbName)
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: chat_id
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/connectors/{connector_id}/auth-url:
+    get:
+      tags: [Connectors]
+      summary: Get OAuth URL for connector authorization
+      description: "Calls tRPC integrations.getAuthUrl({integrationId}) as a POST mutation."
+      parameters:
+        - in: path
+          name: connector_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK — contains the OAuth redirect URL }
+
+  /v1/connectors/permissions:
+    post:
+      tags: [Connectors]
+      summary: Grant connector function permission (after ask_enable_connector callback)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PermissionsBody' }
+            example:
+              updates:
+                - function_name: search_emails
+                  integration_id: gmail
+                  integration_name: Gmail
+                  permission: allow
+      responses:
+        '200': { description: OK }
+
+  # ── Canvas ────────────────────────────────────────────────────────────────
+  /v1/canvas/{chat_id}/{canvas_id}:
+    get:
+      tags: [Canvas]
+      summary: Get a canvas by ID (web-only — svg/html/react/mermaid/etc.)
+      description: "Canvas is web-only. Types: svg, markdown, html, react, code, mermaid, slides, table, spreadsheet."
+      parameters:
+        - in: path
+          name: chat_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: canvas_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  # ── AFP Articles ──────────────────────────────────────────────────────────
+  /v1/afp/articles:
+    post:
+      tags: [AFP]
+      summary: Fetch full AFP news article (tRPC mutation)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AFPArticleBody' }
+      responses:
+        '200': { description: OK }
+
+  # ── Deep Research ─────────────────────────────────────────────────────────
+  /v1/research/{task_id}:
+    get:
+      tags: [Research]
+      summary: "Poll Deep Research task — call every ~3s until status=completed"
+      description: "task_id comes from contentChunks[type=research_task].taskId in the SSE final event."
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: message_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: chat_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: message_version
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [running, completed, failed]
+                  steps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title: { type: string }
+                        status: { type: string }
+                        results: { type: array, items: { type: object } }
+                  referencesCount: { type: integer }
+
+  # ── Skills ────────────────────────────────────────────────────────────────
+  /v1/skills:
+    get:
+      tags: [Skills]
+      summary: "List Vibe Work skills (12 total, or 3 active if for_chat=true)"
+      parameters:
+        - in: query
+          name: for_chat
+          schema: { type: boolean, default: false }
+          description: "true → skills.listForChat (returns 3 default_on skills)"
+      responses:
+        '200': { description: OK }
+
+  /v1/skills/{skill_id}:
+    get:
+      tags: [Skills]
+      summary: Get skill detail + full markdown body (system prompt)
+      description: "skill_id must be the UUID from skillId field — slugs like 'deep-research' do NOT work."
+      parameters:
+        - in: path
+          name: skill_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  # ── Scheduled Tasks ───────────────────────────────────────────────────────
+  /v1/tasks:
+    get:
+      tags: [Tasks]
+      summary: List scheduled tasks
+      description: "Tasks are created by the AI via task_callback, not via REST."
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [scheduled, paused, completed]
+        - in: query
+          name: page
+          schema: { type: integer, default: 0 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20 }
+      responses:
+        '200': { description: OK }
+
+  /v1/tasks/{task_id}:
+    get:
+      tags: [Tasks]
+      summary: Get task by ID
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+    delete:
+      tags: [Tasks]
+      summary: Delete a scheduled task (its chats are archived)
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Deleted }
+
+  /v1/tasks/{task_id}/executions:
+    get:
+      tags: [Tasks]
+      summary: List latest executions (chatId, status, timestamps)
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/tasks/{task_id}/trigger:
+    post:
+      tags: [Tasks]
+      summary: Run task immediately (manual trigger)
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/tasks/{task_id}/pause:
+    post:
+      tags: [Tasks]
+      summary: Pause a scheduled task
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/tasks/{task_id}/resume:
+    post:
+      tags: [Tasks]
+      summary: Resume a paused task
+      parameters:
+        - in: path
+          name: task_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  # ── Workflows ─────────────────────────────────────────────────────────────
+  /v1/workflows:
+    get:
+      tags: [Workflows]
+      summary: List workflows (feature flag workflowsEnabled)
+      responses:
+        '200': { description: OK }
+
+  /v1/workflows/{workflow_id}:
+    get:
+      tags: [Workflows]
+      summary: Get workflow by workflowVersionId
+      parameters:
+        - in: path
+          name: workflow_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/workflows/start:
+    post:
+      tags: [Workflows]
+      summary: Start a workflow execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkflowStartRequest' }
+      responses:
+        '200': { description: OK }
+
+  /v1/workflows/{workflow_id}/input:
+    post:
+      tags: [Workflows]
+      summary: Send user input to a running workflow
+      parameters:
+        - in: path
+          name: workflow_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkflowInputRequest' }
+      responses:
+        '200': { description: OK }
+
+  # ── Projects ──────────────────────────────────────────────────────────────
+  /v1/projects:
+    get:
+      tags: [Projects]
+      summary: List projects (free accounts: max 2)
+      responses:
+        '200': { description: OK }
+
+  /v1/projects/limits:
+    get:
+      tags: [Projects]
+      summary: "Get project limits → {maxProjects: 2}"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maxProjects: { type: integer, example: 2 }
+
+  /v1/projects/{project_id}:
+    get:
+      tags: [Projects]
+      summary: Get project by ID
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+    delete:
+      tags: [Projects]
+      summary: Delete a project
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Deleted }
+
+  /v1/projects/{project_id}/chats:
+    post:
+      tags: [Projects]
+      summary: Add a conversation to a project
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectChatBody' }
+      responses:
+        '200': { description: OK }
+
+  /v1/projects/{project_id}/chats/{chat_id}:
+    delete:
+      tags: [Projects]
+      summary: Remove a conversation from a project
+      description: "Calls tRPC project.removeChat({chatId}) — projectId not required by tRPC."
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: chat_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  # ── Organizations & Billing ───────────────────────────────────────────────
+  /v1/organizations:
+    get:
+      tags: [Orgs & Billing]
+      summary: "List organizations → id, name, leChatPlan, orgTier, role"
+      responses:
+        '200': { description: OK }
+
+  /v1/billing/pro:
+    get:
+      tags: [Orgs & Billing]
+      summary: Le Chat Pro description and localized feature list
+      description: "May return HTTP 500 on free/non-org accounts."
+      responses:
+        '200': { description: OK }
+
+  # ── Vibe Code ─────────────────────────────────────────────────────────────
+  /v1/code/projects:
+    get:
+      tags: [Vibe Code]
+      summary: List Vibe Code projects
+      description: "Feature flag: vibeCodeWebEnabled. Uses /api/code-trpc (not /api/trpc)."
+      responses:
+        '200': { description: OK }
+
+    post:
+      tags: [Vibe Code]
+      summary: Create a Vibe Code project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VibeProjectBody' }
+      responses:
+        '200': { description: OK }
+
+  /v1/code/projects/{project_id}/sessions:
+    get:
+      tags: [Vibe Code]
+      summary: List sessions for a Vibe Code project
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+    post:
+      tags: [Vibe Code]
+      summary: Create a new session in a Vibe Code project
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VibeSessionBody' }
+      responses:
+        '200': { description: OK }
+
+  /v1/code/sessions/{session_id}:
+    get:
+      tags: [Vibe Code]
+      summary: Get Vibe Code session by ID
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/code/sessions/{session_id}/messages:
+    get:
+      tags: [Vibe Code]
+      summary: List messages in a Vibe Code session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+    post:
+      tags: [Vibe Code]
+      summary: Send a message to a Vibe Code session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VibeMessageBody' }
+      responses:
+        '200': { description: OK }
+
+  /v1/code/sessions/{session_id}/artifacts:
+    get:
+      tags: [Vibe Code]
+      summary: List artifacts generated in a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/code/sessions/{session_id}/files:
+    get:
+      tags: [Vibe Code]
+      summary: List generated files in a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: OK }
+
+  /v1/code/sessions/{session_id}/respond:
+    post:
+      tags: [Vibe Code]
+      summary: Respond to an AI action request in a session
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VibeRespondBody' }
+      responses:
+        '200': { description: OK }
+
+  /v1/code/sessions/{session_id}/stream:
+    get:
+      tags: [Vibe Code]
+      summary: SSE stream for session events
+      description: "Calls sessions.subscribe — no batch wrapper, plain ?input={\"json\":{...}}."
+      parameters:
+        - in: path
+          name: session_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+tags:
+  - name: Auth
+    description: Login, register, session info
+  - name: Chat
+    description: OpenAI-compatible chat completions with SSE streaming
+  - name: Models
+    description: Model listing (static fallback or live from api.mistral.ai)
+  - name: Images
+    description: Image generation via beta-imagegen feature
+  - name: Audio
+    description: TTS (speech), STT (transcriptions), read-aloud existing messages
+  - name: Conversations
+    description: List, read, rename, pin, share, delete conversations
+  - name: Users
+    description: Session, limits, settings, search, reactions
+  - name: Memory
+    description: Cross-conversation memory toggle
+  - name: Connectors
+    description: OAuth connectors — Google Drive, Gmail, Slack, GitHub, etc.
+  - name: Canvas
+    description: Canvas retrieval (web-only feature)
+  - name: AFP
+    description: AFP news article fetching (partner integration)
+  - name: Research
+    description: Deep Research task polling
+  - name: Skills
+    description: Vibe Work skills — list and detail
+  - name: Tasks
+    description: Scheduled AI tasks — list, trigger, pause, resume, delete
+  - name: Workflows
+    description: Workflow listing and execution
+  - name: Projects
+    description: Project management for conversations
+  - name: Orgs & Billing
+    description: Organizations and Le Chat Pro billing info
+  - name: Vibe Code
+    description: Vibe Code projects and sessions (uses /api/code-trpc)

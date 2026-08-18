@@ -1,0 +1,900 @@
+{
+  "info": {
+    "name": "Mistral Le Chat Proxy",
+    "description": "OpenAI-compatible proxy for chat.mistral.ai — reverse-engineered from APK v2.8.0.\n\nSet the `base_url` variable to your proxy (default http://localhost:8000) and `session_token` to your `ory_st_...` token. After calling POST /v1/auth/login the token is auto-saved to the collection variable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url",       "value": "http://localhost:8000",            "type": "string" },
+    { "key": "session_token",  "value": "ory_st_...",                       "type": "string" },
+    { "key": "conv_id",        "value": "",                                 "type": "string" },
+    { "key": "task_id",        "value": "",                                 "type": "string" },
+    { "key": "skill_id",       "value": "",                                 "type": "string" },
+    { "key": "connector_id",   "value": "",                                 "type": "string" },
+    { "key": "project_id",     "value": "",                                 "type": "string" },
+    { "key": "workflow_id",    "value": "",                                 "type": "string" },
+    { "key": "vibe_project_id","value": "",                                 "type": "string" },
+    { "key": "vibe_session_id","value": "",                                 "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{session_token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (r.token) pm.collectionVariables.set('session_token', r.token);"
+              ]
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "url": "{{base_url}}/v1/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"your-password\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "url": "{{base_url}}/v1/auth/register",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"new@example.com\",\n  \"password\": \"password123\",\n  \"first_name\": \"User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "Chat Completions (stream)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var id = pm.response.headers.get('X-Conversation-Id');",
+                "if (id) pm.collectionVariables.set('conv_id', id);"
+              ]
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"Hello! What can you do?\" }\n  ],\n  \"stream\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat Completions (no stream)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"What is 2+2?\" }\n  ],\n  \"stream\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat Completions (continue conversation)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"And what else can you tell me?\" }\n  ],\n  \"conversation_id\": \"{{conv_id}}\",\n  \"stream\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat Completions (with system prompt)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"You are a pirate. Speak like one.\" },\n    { \"role\": \"user\", \"content\": \"Tell me about the sea.\" }\n  ],\n  \"stream\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat Completions (image vision)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        { \"type\": \"text\", \"text\": \"What is in this image?\" },\n        { \"type\": \"image_url\", \"image_url\": { \"url\": \"https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/240px-PNG_transparency_demonstration_1.png\" } }\n      ]\n    }\n  ],\n  \"stream\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat Completions (image generation)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"Generate an image of a sunset over the ocean\" }\n  ],\n  \"features\": [\"beta-imagegen\"],\n  \"stream\": false\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Models",
+      "item": [
+        {
+          "name": "List Models",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "noauth" },
+            "url": "{{base_url}}/v1/models"
+          }
+        },
+        {
+          "name": "Get Model",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "noauth" },
+            "url": "{{base_url}}/v1/models/mistral-medium-latest"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Images",
+      "item": [
+        {
+          "name": "Generate Image",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/images/generations",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"A futuristic city at sunset, digital art\",\n  \"n\": 1\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audio",
+      "item": [
+        {
+          "name": "Text-to-Speech (speech)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/audio/speech",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"Hello, this is a test of the Mistral text-to-speech system.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Speech-to-Text (transcriptions)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/audio/transcriptions",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "model", "value": "whisper-1", "type": "text" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read-aloud Existing Message",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/audio/speak",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chat_id\": \"{{conv_id}}\",\n  \"message_id\": \"<message-uuid>\",\n  \"message_version\": 0\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conversations",
+      "item": [
+        {
+          "name": "List Conversations",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/conversations?limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "conversations"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Conversation",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/conversations/{{conv_id}}"
+          }
+        },
+        {
+          "name": "Get Messages",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/conversations/{{conv_id}}/messages"
+          }
+        },
+        {
+          "name": "Rename Conversation",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/v1/conversations/{{conv_id}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"My renamed conversation\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Pin / Unpin",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/conversations/{{conv_id}}/pin",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pinned\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Share Conversation",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/conversations/{{conv_id}}/share"
+          }
+        },
+        {
+          "name": "Cancel Generation",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/conversations/{{conv_id}}/cancel"
+          }
+        },
+        {
+          "name": "Search in Conversation",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/conversations/{{conv_id}}/search?q=hello",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "conversations", "{{conv_id}}", "search"],
+              "query": [{ "key": "q", "value": "hello" }]
+            }
+          }
+        },
+        {
+          "name": "Delete Conversation",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/v1/conversations/{{conv_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users & Settings",
+      "item": [
+        {
+          "name": "Me (session + limits)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/users/me"
+          }
+        },
+        {
+          "name": "Rate Limits",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/users/limits"
+          }
+        },
+        {
+          "name": "Settings (feature flags)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/users/settings"
+          }
+        },
+        {
+          "name": "Search (cross-workspace)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/search?q=python&scope=all",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "search"],
+              "query": [
+                { "key": "q", "value": "python" },
+                { "key": "scope", "value": "all" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add Reaction",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/messages/reactions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message_id\": \"<message-uuid>\",\n  \"chat_id\": \"{{conv_id}}\",\n  \"version\": 0,\n  \"reaction\": \"like\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Memory",
+      "item": [
+        {
+          "name": "Get Memory Status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/memory"
+          }
+        },
+        {
+          "name": "Toggle Memory ON",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/memory/toggle",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Toggle Memory OFF",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/memory/toggle",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Connectors",
+      "item": [
+        {
+          "name": "List Connectors",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (r && r.items && r.items.length > 0) {",
+                "  pm.collectionVariables.set('connector_id', r.items[0].id);",
+                "}"
+              ]
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/connectors"
+          }
+        },
+        {
+          "name": "Get Connector Detail",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/connectors/{{connector_id}}"
+          }
+        },
+        {
+          "name": "Get OAuth Auth URL",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/connectors/{{connector_id}}/auth-url"
+          }
+        },
+        {
+          "name": "Grant Function Permission",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/connectors/permissions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"updates\": [\n    {\n      \"function_name\": \"search_emails\",\n      \"integration_id\": \"gmail\",\n      \"integration_name\": \"Gmail\",\n      \"permission\": \"allow\"\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Canvas",
+      "item": [
+        {
+          "name": "Get Canvas",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/canvas/{{conv_id}}/<canvas-uuid>",
+            "description": "Web-only. canvas_id is the UUID from contentChunks[type=canvas].canvasId in the SSE final event."
+          }
+        }
+      ]
+    },
+    {
+      "name": "AFP Articles",
+      "item": [
+        {
+          "name": "Get AFP Article",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/afp/articles",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"article_id\": \"<afp-article-id-from-search-results>\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Deep Research",
+      "item": [
+        {
+          "name": "Poll Research Task",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/research/{{task_id}}?message_id=<uuid>&chat_id={{conv_id}}&message_version=0",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "research", "{{task_id}}"],
+              "query": [
+                { "key": "message_id", "value": "<message-uuid>" },
+                { "key": "chat_id", "value": "{{conv_id}}" },
+                { "key": "message_version", "value": "0" }
+              ]
+            },
+            "description": "Poll every ~3s until status=completed. task_id comes from contentChunks[type=research_task].taskId in the SSE final event."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Skills",
+      "item": [
+        {
+          "name": "List All Skills (12)",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (Array.isArray(r) && r.length > 0 && r[0].skillId) {",
+                "  pm.collectionVariables.set('skill_id', r[0].skillId);",
+                "}"
+              ]
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/skills"
+          }
+        },
+        {
+          "name": "List Active Skills (3)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/skills?for_chat=true",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "skills"],
+              "query": [{ "key": "for_chat", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "Get Skill Detail",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/skills/{{skill_id}}",
+            "description": "skill_id must be the UUID from the skillId field — slugs do NOT work."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scheduled Tasks",
+      "item": [
+        {
+          "name": "List Tasks",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (Array.isArray(r) && r.length > 0) {",
+                "  pm.collectionVariables.set('task_id', r[0].id);",
+                "}"
+              ]
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/v1/tasks?page=0&page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["v1", "tasks"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "page_size", "value": "20" },
+                { "key": "status", "value": "scheduled", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Task",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/tasks/{{task_id}}"
+          }
+        },
+        {
+          "name": "List Executions",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/tasks/{{task_id}}/executions"
+          }
+        },
+        {
+          "name": "Trigger Task Now",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/tasks/{{task_id}}/trigger"
+          }
+        },
+        {
+          "name": "Pause Task",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/tasks/{{task_id}}/pause"
+          }
+        },
+        {
+          "name": "Resume Task",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/tasks/{{task_id}}/resume"
+          }
+        },
+        {
+          "name": "Delete Task",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/v1/tasks/{{task_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Workflows",
+      "item": [
+        {
+          "name": "List Workflows",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (Array.isArray(r) && r.length > 0 && r[0].workflowVersionId) {",
+                "  pm.collectionVariables.set('workflow_id', r[0].workflowVersionId);",
+                "}"
+              ]
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/workflows"
+          }
+        },
+        {
+          "name": "Get Workflow",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/workflows/{{workflow_id}}"
+          }
+        },
+        {
+          "name": "Start Workflow",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/workflows/start",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workflow_version_id\": \"{{workflow_id}}\",\n  \"input\": {},\n  \"assistant_message_key\": {}\n}"
+            }
+          }
+        },
+        {
+          "name": "Send Workflow Input",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/workflows/{{workflow_id}}/input",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workflow_version_id\": \"{{workflow_id}}\",\n  \"execution_id\": \"<execution-uuid>\",\n  \"custom_task_id\": \"<task-id>\",\n  \"input\": \"user response text\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "List Projects",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (Array.isArray(r) && r.length > 0) {",
+                "  pm.collectionVariables.set('project_id', r[0].id);",
+                "}"
+              ]
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/projects"
+          }
+        },
+        {
+          "name": "Get Limits",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/projects/limits"
+          }
+        },
+        {
+          "name": "Get Project",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/projects/{{project_id}}"
+          }
+        },
+        {
+          "name": "Add Chat to Project",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/projects/{{project_id}}/chats",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chat_id\": \"{{conv_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Remove Chat from Project",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/v1/projects/{{project_id}}/chats/{{conv_id}}"
+          }
+        },
+        {
+          "name": "Delete Project",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/v1/projects/{{project_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orgs & Billing",
+      "item": [
+        {
+          "name": "List Organizations",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/organizations"
+          }
+        },
+        {
+          "name": "Le Chat Pro Description",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/billing/pro",
+            "description": "May return HTTP 500 on free/non-org accounts."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vibe Code",
+      "description": "Feature flag: vibeCodeWebEnabled. Uses /api/code-trpc (separate tRPC server).",
+      "item": [
+        {
+          "name": "List Vibe Projects",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (Array.isArray(r) && r.length > 0) {",
+                "  pm.collectionVariables.set('vibe_project_id', r[0].id);",
+                "}"
+              ]
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/code/projects"
+          }
+        },
+        {
+          "name": "Create Vibe Project",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/code/projects",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My App\",\n  \"repositories\": []\n}"
+            }
+          }
+        },
+        {
+          "name": "List Sessions",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "var r = pm.response.json();",
+                "if (Array.isArray(r) && r.length > 0) {",
+                "  pm.collectionVariables.set('vibe_session_id', r[0].id);",
+                "}"
+              ]
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/code/projects/{{vibe_project_id}}/sessions"
+          }
+        },
+        {
+          "name": "Create Session",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/code/projects/{{vibe_project_id}}/sessions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_id\": \"{{vibe_project_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Session",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}"
+          }
+        },
+        {
+          "name": "List Session Messages",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/messages"
+          }
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/messages",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Build a simple todo app with React\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Artifacts",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/artifacts"
+          }
+        },
+        {
+          "name": "List Files",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/files"
+          }
+        },
+        {
+          "name": "Respond to AI Action",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/respond",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"callback_id\": \"<callback-id>\",\n  \"response\": { \"confirmed\": true }\n}"
+            }
+          }
+        },
+        {
+          "name": "SSE Stream",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/stream",
+            "description": "Server-Sent Events stream. No batch wrapper. Keep-alive connection."
+          }
+        }
+      ]
+    }
+  ]
+}
