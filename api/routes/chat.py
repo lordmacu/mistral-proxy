@@ -29,7 +29,7 @@ from api.schemas import (
     ChatCompletionRequest, ChatCompletionResponse,
     Choice, Delta, Message, Usage,
 )
-from api.client import get_client
+from api.client import get_client, relogin
 
 router = APIRouter(tags=["chat"])
 
@@ -270,12 +270,31 @@ def _build_chat_body(client, req: ChatCompletionRequest, chat_id: str, mode: str
         }
 
 
+def _is_expired_session(resp) -> bool:
+    """A 401/403 from Mistral means the Ory session token expired or was revoked.
+
+    It is worth distinguishing from every other upstream failure because it is
+    the only one a restart-free recovery exists for: the credentials are
+    configured, so the proxy can just log in again.
+    """
+    return getattr(resp, "status_code", None) in (401, 403)
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(req: ChatCompletionRequest, request: Request):
     client = get_client()
 
     if not client.session_token:
-        raise HTTPException(status_code=401, detail="Not authenticated. POST /v1/auth/login first.")
+        # With MISTRAL_EMAIL/MISTRAL_PASSWORD configured this is recoverable
+        # without operator action: try once before giving up.
+        if relogin():
+            client = get_client()
+        if not client.session_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated. Configure MISTRAL_SESSION_TOKEN, or "
+                       "MISTRAL_EMAIL + MISTRAL_PASSWORD so the proxy can log in "
+                       "on its own, or POST /v1/auth/login.")
 
     conv_id = req.conversation_id or request.headers.get("X-Conversation-Id")
 
@@ -305,6 +324,23 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
 
     body = _build_chat_body(client, req, chat_id, mode, effective_user_text)
     resp = _post_chat(client, body)
+
+    # Expired session → log in again and replay this request ONCE. Without this,
+    # an expired token turns into a permanent 401 for every caller until someone
+    # restarts the container with a freshly pasted token: the process stays
+    # healthy, so nothing upstream notices. Only one retry, and only when
+    # relogin() actually had credentials to use -- otherwise the original
+    # response falls through to the normal error handling below.
+    if _is_expired_session(resp) and relogin():
+        client = get_client()
+        if not conv_id:
+            files = _upload_message_images(client, image_parts) if image_parts else []
+            chat_id = _create_chat_with_files(
+                client, effective_user_text, files,
+                features=req.features, incognito=req.incognito)
+            mode = "start"
+        resp = _post_chat(client, _build_chat_body(
+            client, req, chat_id, mode, effective_user_text))
 
     # Auth account rate-limited (6200) → fall back to anonymous with fresh UUID
     if _is_rate_limit_6200(resp):
