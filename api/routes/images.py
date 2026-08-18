@@ -68,10 +68,14 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
     Send a prompt to /api/chat with beta-imagegen feature.
     Returns (image_url, revised_prompt).
     """
-    # Create a new chat with the prompt
+    # Mistral image generation works through the chat interface: the model uses
+    # the generate_image tool when it detects image-generation intent. Wrapping
+    # the user's raw prompt ("a red apple") makes that intent unambiguous so the
+    # model doesn't answer as a text question instead.
+    wrapped = f"Generate an image of: {prompt}"
     trpc_input = {
         "files": [],
-        "content": [{"type": "text", "text": prompt}],
+        "content": [{"type": "text", "text": wrapped}],
         "transcriptionsMetadata": [],
         "features": ["beta-imagegen"],
         "integrations": [],
@@ -210,7 +214,12 @@ def create_image(req: ImageGenerationRequest):
             # 502 is right here and deliberately NOT 200-with-empty-data: an
             # empty `data` array reads as success to an OpenAI client, and
             # llm-libre would record a success for a route that generated
-            # nothing.
-            raise HTTPException(status_code=502, detail="No image URL in model response")
+            # nothing. The model returned text instead of using generate_image.
+            raise HTTPException(
+                status_code=502,
+                detail="Model did not generate an image (responded with text). "
+                       "The APK bundle confirms code 'did not generate an image' "
+                       "is a known case — the model chose not to use the generate_image tool.",
+            )
 
     return ImageGenerationResponse(created=int(time.time()), data=results)

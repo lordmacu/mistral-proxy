@@ -727,9 +727,11 @@ class MistralAnonChat:
         if not self.session_token:
             raise RuntimeError("Authentication required for image generation.")
 
+        # Wrap with explicit intent so the model uses generate_image tool
+        wrapped_prompt = f"Generate an image of: {prompt}"
         trpc_input = {
             "files": [],
-            "content": [{"type": "text", "text": prompt}],
+            "content": [{"type": "text", "text": wrapped_prompt}],
             "transcriptionsMetadata": [],
             "features": ["beta-imagegen"],
             "integrations": [],
