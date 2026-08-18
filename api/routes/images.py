@@ -211,6 +211,9 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
     return image_url, revised_prompt
 
 
+_MAX_ATTEMPTS = 3
+
+
 @router.post("/v1/images/generations", response_model=ImageGenerationResponse)
 def create_image(req: ImageGenerationRequest):
     client = get_client()
@@ -219,19 +222,23 @@ def create_image(req: ImageGenerationRequest):
 
     results = []
     for _ in range(max(1, req.n)):
-        image_url, revised = _generate_image_stream(client, req.prompt)
+        image_url: str | None = None
+        revised: str | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            image_url, revised = _generate_image_stream(client, req.prompt)
+            if image_url:
+                break
+            # BFL backend returned success but no image URL yet — retry.
+            # Each attempt creates a new chat (2 credits); 3 attempts = 6 credits max.
+            if attempt < _MAX_ATTEMPTS - 1:
+                time.sleep(3)
         if image_url:
             results.append(ImageData(url=image_url, revised_prompt=revised or req.prompt))
         else:
-            # 502 is right here and deliberately NOT 200-with-empty-data: an
-            # empty `data` array reads as success to an OpenAI client, and
-            # llm-libre would record a success for a route that generated
-            # nothing. The model returned text instead of using generate_image.
             raise HTTPException(
                 status_code=502,
-                detail="Model did not generate an image (responded with text). "
-                       "The APK bundle confirms code 'did not generate an image' "
-                       "is a known case — the model chose not to use the generate_image tool.",
+                detail=f"Model did not generate an image after {_MAX_ATTEMPTS} attempts "
+                       "(BFL backend timed out or model used text response).",
             )
 
     return ImageGenerationResponse(created=int(time.time()), data=results)
