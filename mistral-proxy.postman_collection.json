@@ -5,20 +5,66 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url",       "value": "http://localhost:8000",            "type": "string" },
-    { "key": "session_token",  "value": "ory_st_...",                       "type": "string" },
-    { "key": "conv_id",        "value": "",                                 "type": "string" },
-    { "key": "task_id",        "value": "",                                 "type": "string" },
-    { "key": "skill_id",       "value": "",                                 "type": "string" },
-    { "key": "connector_id",   "value": "",                                 "type": "string" },
-    { "key": "project_id",     "value": "",                                 "type": "string" },
-    { "key": "workflow_id",    "value": "",                                 "type": "string" },
-    { "key": "vibe_project_id","value": "",                                 "type": "string" },
-    { "key": "vibe_session_id","value": "",                                 "type": "string" }
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "session_token",
+      "value": "ory_st_...",
+      "type": "string"
+    },
+    {
+      "key": "conv_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "task_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "skill_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "connector_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "project_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "workflow_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "vibe_project_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "vibe_session_id",
+      "value": "",
+      "type": "string"
+    }
   ],
   "auth": {
     "type": "bearer",
-    "bearer": [{ "key": "token", "value": "{{session_token}}", "type": "string" }]
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{session_token}}",
+        "type": "string"
+      }
+    ]
   },
   "item": [
     {
@@ -26,20 +72,29 @@
       "item": [
         {
           "name": "Login",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (r.token) pm.collectionVariables.set('session_token', r.token);"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r.token) pm.collectionVariables.set('session_token', r.token);"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "POST",
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "url": "{{base_url}}/v1/auth/login",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"your-password\"\n}"
@@ -50,9 +105,16 @@
           "name": "Register",
           "request": {
             "method": "POST",
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "url": "{{base_url}}/v1/auth/register",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"new@example.com\",\n  \"password\": \"password123\",\n  \"first_name\": \"User\"\n}"
@@ -73,19 +135,26 @@
       "item": [
         {
           "name": "Chat Completions (stream)",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var id = pm.response.headers.get('X-Conversation-Id');",
-                "if (id) pm.collectionVariables.set('conv_id', id);"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var id = pm.response.headers.get('X-Conversation-Id');",
+                  "if (id) pm.collectionVariables.set('conv_id', id);"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/chat/completions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"Hello! What can you do?\" }\n  ],\n  \"stream\": true\n}"
@@ -97,7 +166,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/chat/completions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"What is 2+2?\" }\n  ],\n  \"stream\": false\n}"
@@ -109,7 +183,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/chat/completions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"And what else can you tell me?\" }\n  ],\n  \"conversation_id\": \"{{conv_id}}\",\n  \"stream\": true\n}"
@@ -121,7 +200,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/chat/completions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"You are a pirate. Speak like one.\" },\n    { \"role\": \"user\", \"content\": \"Tell me about the sea.\" }\n  ],\n  \"stream\": false\n}"
@@ -133,7 +217,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/chat/completions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        { \"type\": \"text\", \"text\": \"What is in this image?\" },\n        { \"type\": \"image_url\", \"image_url\": { \"url\": \"https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/240px-PNG_transparency_demonstration_1.png\" } }\n      ]\n    }\n  ],\n  \"stream\": false\n}"
@@ -145,12 +234,51 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/chat/completions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"Generate an image of a sunset over the ocean\" }\n  ],\n  \"features\": [\"beta-imagegen\"],\n  \"stream\": false\n}"
             }
           }
+        },
+        {
+          "name": "vision — image_url in chat (OpenAI format)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/chat/completions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "chat",
+                "completions"
+              ]
+            },
+            "description": "Image INPUT through the OpenAI-compatible endpoint. Accepts one or more image_url parts (https URL and/or data URI) alongside text in the same message -- the same consolidation llm-libre relies on. Remote URLs are fetched and re-uploaded to Mistral's blob storage.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"mistral-medium-latest\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"image_url\",\n          \"image_url\": {\n            \"url\": \"https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"¿Qué hay en esta imagen?\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -161,7 +289,9 @@
           "name": "List Models",
           "request": {
             "method": "GET",
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "url": "{{base_url}}/v1/models"
           }
         },
@@ -169,7 +299,9 @@
           "name": "Get Model",
           "request": {
             "method": "GET",
-            "auth": { "type": "noauth" },
+            "auth": {
+              "type": "noauth"
+            },
             "url": "{{base_url}}/v1/models/mistral-medium-latest"
           }
         }
@@ -183,12 +315,55 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/images/generations",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"prompt\": \"A futuristic city at sunset, digital art\",\n  \"n\": 1\n}"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "Vision",
+      "item": [
+        {
+          "name": "describe images (dedicated endpoint)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/vision",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "vision"
+              ]
+            },
+            "description": "Dedicated vision contract: {prompt, images:[...]} -> {text, conversation_id}. Each image may be a public https URL or a data URI. Both are uploaded to Mistral's blob storage (file.uploadFile -> Azure PUT -> file.confirmUpload) and passed to the model. For an OpenAI-compatible client, use /v1/chat/completions with image_url instead.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Describe esto en una frase.\",\n  \"images\": [\n    \"https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -200,7 +375,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/audio/speech",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"input\": \"Hello, this is a test of the Mistral text-to-speech system.\"\n}"
@@ -215,8 +395,16 @@
             "body": {
               "mode": "formdata",
               "formdata": [
-                { "key": "file", "type": "file", "src": "" },
-                { "key": "model", "value": "whisper-1", "type": "text" }
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                },
+                {
+                  "key": "model",
+                  "value": "whisper-1",
+                  "type": "text"
+                }
               ]
             }
           }
@@ -226,7 +414,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/audio/speak",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"chat_id\": \"{{conv_id}}\",\n  \"message_id\": \"<message-uuid>\",\n  \"message_version\": 0\n}"
@@ -244,11 +437,23 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/v1/conversations?limit=20",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "conversations"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "conversations"
+              ],
               "query": [
-                { "key": "limit", "value": "20" },
-                { "key": "cursor", "value": "", "disabled": true }
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "disabled": true
+                }
               ]
             }
           }
@@ -272,7 +477,12 @@
           "request": {
             "method": "PATCH",
             "url": "{{base_url}}/v1/conversations/{{conv_id}}",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"My renamed conversation\"\n}"
@@ -284,7 +494,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/conversations/{{conv_id}}/pin",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"pinned\": true\n}"
@@ -311,9 +526,21 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/v1/conversations/{{conv_id}}/search?q=hello",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "conversations", "{{conv_id}}", "search"],
-              "query": [{ "key": "q", "value": "hello" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "conversations",
+                "{{conv_id}}",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "hello"
+                }
+              ]
             }
           }
         },
@@ -356,11 +583,22 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/v1/search?q=python&scope=all",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "search"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "search"
+              ],
               "query": [
-                { "key": "q", "value": "python" },
-                { "key": "scope", "value": "all" }
+                {
+                  "key": "q",
+                  "value": "python"
+                },
+                {
+                  "key": "scope",
+                  "value": "all"
+                }
               ]
             }
           }
@@ -370,7 +608,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/messages/reactions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"message_id\": \"<message-uuid>\",\n  \"chat_id\": \"{{conv_id}}\",\n  \"version\": 0,\n  \"reaction\": \"like\"\n}"
@@ -394,7 +637,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/memory/toggle",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"enabled\": true\n}"
@@ -406,7 +654,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/memory/toggle",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"enabled\": false\n}"
@@ -420,17 +673,19 @@
       "item": [
         {
           "name": "List Connectors",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (r && r.items && r.items.length > 0) {",
-                "  pm.collectionVariables.set('connector_id', r.items[0].id);",
-                "}"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r && r.items && r.items.length > 0) {",
+                  "  pm.collectionVariables.set('connector_id', r.items[0].id);",
+                  "}"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "GET",
             "url": "{{base_url}}/v1/connectors"
@@ -455,7 +710,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/connectors/permissions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"updates\": [\n    {\n      \"function_name\": \"search_emails\",\n      \"integration_id\": \"gmail\",\n      \"integration_name\": \"Gmail\",\n      \"permission\": \"allow\"\n    }\n  ]\n}"
@@ -485,7 +745,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/afp/articles",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"article_id\": \"<afp-article-id-from-search-results>\"\n}"
@@ -503,12 +768,27 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/v1/research/{{task_id}}?message_id=<uuid>&chat_id={{conv_id}}&message_version=0",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "research", "{{task_id}}"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "research",
+                "{{task_id}}"
+              ],
               "query": [
-                { "key": "message_id", "value": "<message-uuid>" },
-                { "key": "chat_id", "value": "{{conv_id}}" },
-                { "key": "message_version", "value": "0" }
+                {
+                  "key": "message_id",
+                  "value": "<message-uuid>"
+                },
+                {
+                  "key": "chat_id",
+                  "value": "{{conv_id}}"
+                },
+                {
+                  "key": "message_version",
+                  "value": "0"
+                }
               ]
             },
             "description": "Poll every ~3s until status=completed. task_id comes from contentChunks[type=research_task].taskId in the SSE final event."
@@ -521,17 +801,19 @@
       "item": [
         {
           "name": "List All Skills (12)",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (Array.isArray(r) && r.length > 0 && r[0].skillId) {",
-                "  pm.collectionVariables.set('skill_id', r[0].skillId);",
-                "}"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (Array.isArray(r) && r.length > 0 && r[0].skillId) {",
+                  "  pm.collectionVariables.set('skill_id', r[0].skillId);",
+                  "}"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "GET",
             "url": "{{base_url}}/v1/skills"
@@ -543,9 +825,19 @@
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/v1/skills?for_chat=true",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "skills"],
-              "query": [{ "key": "for_chat", "value": "true" }]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "skills"
+              ],
+              "query": [
+                {
+                  "key": "for_chat",
+                  "value": "true"
+                }
+              ]
             }
           }
         },
@@ -564,27 +856,44 @@
       "item": [
         {
           "name": "List Tasks",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (Array.isArray(r) && r.length > 0) {",
-                "  pm.collectionVariables.set('task_id', r[0].id);",
-                "}"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (Array.isArray(r) && r.length > 0) {",
+                  "  pm.collectionVariables.set('task_id', r[0].id);",
+                  "}"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "GET",
             "url": {
               "raw": "{{base_url}}/v1/tasks?page=0&page_size=20",
-              "host": ["{{base_url}}"],
-              "path": ["v1", "tasks"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "tasks"
+              ],
               "query": [
-                { "key": "page", "value": "0" },
-                { "key": "page_size", "value": "20" },
-                { "key": "status", "value": "scheduled", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "scheduled",
+                  "disabled": true
+                }
               ]
             }
           }
@@ -638,17 +947,19 @@
       "item": [
         {
           "name": "List Workflows",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (Array.isArray(r) && r.length > 0 && r[0].workflowVersionId) {",
-                "  pm.collectionVariables.set('workflow_id', r[0].workflowVersionId);",
-                "}"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (Array.isArray(r) && r.length > 0 && r[0].workflowVersionId) {",
+                  "  pm.collectionVariables.set('workflow_id', r[0].workflowVersionId);",
+                  "}"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "GET",
             "url": "{{base_url}}/v1/workflows"
@@ -666,7 +977,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/workflows/start",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"workflow_version_id\": \"{{workflow_id}}\",\n  \"input\": {},\n  \"assistant_message_key\": {}\n}"
@@ -678,7 +994,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/workflows/{{workflow_id}}/input",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"workflow_version_id\": \"{{workflow_id}}\",\n  \"execution_id\": \"<execution-uuid>\",\n  \"custom_task_id\": \"<task-id>\",\n  \"input\": \"user response text\"\n}"
@@ -692,17 +1013,19 @@
       "item": [
         {
           "name": "List Projects",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (Array.isArray(r) && r.length > 0) {",
-                "  pm.collectionVariables.set('project_id', r[0].id);",
-                "}"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (Array.isArray(r) && r.length > 0) {",
+                  "  pm.collectionVariables.set('project_id', r[0].id);",
+                  "}"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "GET",
             "url": "{{base_url}}/v1/projects"
@@ -727,7 +1050,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/projects/{{project_id}}/chats",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"chat_id\": \"{{conv_id}}\"\n}"
@@ -776,17 +1104,19 @@
       "item": [
         {
           "name": "List Vibe Projects",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (Array.isArray(r) && r.length > 0) {",
-                "  pm.collectionVariables.set('vibe_project_id', r[0].id);",
-                "}"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (Array.isArray(r) && r.length > 0) {",
+                  "  pm.collectionVariables.set('vibe_project_id', r[0].id);",
+                  "}"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "GET",
             "url": "{{base_url}}/v1/code/projects"
@@ -797,7 +1127,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/code/projects",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"My App\",\n  \"repositories\": []\n}"
@@ -806,17 +1141,19 @@
         },
         {
           "name": "List Sessions",
-          "event": [{
-            "listen": "test",
-            "script": {
-              "exec": [
-                "var r = pm.response.json();",
-                "if (Array.isArray(r) && r.length > 0) {",
-                "  pm.collectionVariables.set('vibe_session_id', r[0].id);",
-                "}"
-              ]
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (Array.isArray(r) && r.length > 0) {",
+                  "  pm.collectionVariables.set('vibe_session_id', r[0].id);",
+                  "}"
+                ]
+              }
             }
-          }],
+          ],
           "request": {
             "method": "GET",
             "url": "{{base_url}}/v1/code/projects/{{vibe_project_id}}/sessions"
@@ -827,7 +1164,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/code/projects/{{vibe_project_id}}/sessions",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"project_id\": \"{{vibe_project_id}}\"\n}"
@@ -853,7 +1195,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/messages",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"content\": \"Build a simple todo app with React\"\n}"
@@ -879,7 +1226,12 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/v1/code/sessions/{{vibe_session_id}}/respond",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"callback_id\": \"<callback-id>\",\n  \"response\": { \"confirmed\": true }\n}"
