@@ -25,6 +25,44 @@ from api.client import get_client
 router = APIRouter(tags=["images"])
 
 
+def _read_body(resp) -> str:
+    """Drain a STREAMED response into text.
+
+    This is the root cause of the empty `502 "API error: "` this endpoint used
+    to answer. The request is made with `stream=True`, so `resp.text` and
+    `resp.json()` are empty until the body is consumed -- and the error path
+    read `resp.text[:200]` directly, which is always "" on an unconsumed stream.
+    Every diagnosis of an upstream failure here has to drain it first.
+    """
+    try:
+        raw = b"".join(resp.iter_content(chunk_size=None))
+    except Exception:
+        raw = b""
+    if not raw:
+        raw = (getattr(resp, "content", b"") or b"")
+    return raw.decode("utf-8", errors="replace").strip()
+
+
+def _error_detail(resp, fallback: str) -> str:
+    """Name what went wrong, never return an empty string.
+
+    Mistral sends {"detail": "...", "code": 6200} for a spent quota. Anything
+    unexpected falls back to the raw body, and an empty body to `fallback` --
+    the one thing this must never do again is report nothing at all.
+    """
+    text = _read_body(resp)
+    try:
+        body = json.loads(text)
+    except (ValueError, TypeError):
+        body = None
+    if isinstance(body, dict):
+        msg = body.get("detail") or body.get("message")
+        code = body.get("code")
+        if msg:
+            return f"{msg}{f' (code {code})' if code else ''}"
+    return text[:200] or fallback
+
+
 def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]:
     """
     Send a prompt to /api/chat with beta-imagegen feature.
@@ -79,8 +117,21 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
         stream=True,
     )
 
+    if resp.status_code == 429:
+        # Mistral answers a spent quota with a PLAIN JSON 429
+        # ({"detail":"Message rate limit reached","code":6200}) -- not an SSE
+        # frame. The old code fell through to the type-6 parser below, found
+        # nothing (there is no SSE to parse) and raised `502 "API error: "`,
+        # with an empty message: the one failure an operator most needs named,
+        # reported as an anonymous upstream error. Worse for llm-libre, which
+        # classifies a 502 as evidence the ROUTE is broken and a 429 as
+        # "rate-limited, back off" -- so a spent quota was punishing the route
+        # with the wrong mechanism.
+        raise HTTPException(status_code=429, detail=_error_detail(
+            resp, "Message rate limit reached on the Mistral account"))
     if resp.status_code not in (200, 201):
-        raise HTTPException(status_code=502, detail=f"API error: {resp.text[:200]}")
+        raise HTTPException(status_code=502, detail="API error: " + _error_detail(
+            resp, f"HTTP {resp.status_code}"))
 
     image_url = None
     revised_prompt = None
@@ -111,7 +162,11 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
             continue
 
         if line_type == 6:
-            msg = j.get("message", str(j))
+            # `.get("message")` alone returned "" for a frame that carries the
+            # text under another key, which is how this endpoint used to answer
+            # `502 "API error: "`. Fall back to the whole frame rather than to
+            # nothing: an operator can act on an odd payload, never on silence.
+            msg = j.get("message") or j.get("detail") or json.dumps(j)[:200]
             raise HTTPException(status_code=502, detail=f"API error: {msg}")
 
         if j.get("type") == "message":
@@ -152,6 +207,10 @@ def create_image(req: ImageGenerationRequest):
         if image_url:
             results.append(ImageData(url=image_url, revised_prompt=revised or req.prompt))
         else:
+            # 502 is right here and deliberately NOT 200-with-empty-data: an
+            # empty `data` array reads as success to an OpenAI client, and
+            # llm-libre would record a success for a route that generated
+            # nothing.
             raise HTTPException(status_code=502, detail="No image URL in model response")
 
     return ImageGenerationResponse(created=int(time.time()), data=results)
