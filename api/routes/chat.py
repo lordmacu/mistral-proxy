@@ -18,6 +18,8 @@ import base64
 import json
 import mimetypes
 import time
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from typing import Generator
@@ -38,28 +40,26 @@ def _upload_image_to_blob(client, image_bytes: bytes, mime_type: str) -> str:
     """
     Upload image bytes to Mistral's Azure Blob storage via file.uploadFile tRPC.
 
-    Flow (APK F78458/requestUploadUrl, createFileUploadTask):
-      1. POST /api/trpc/file.uploadFile?batch=1 {type:"image", count:1}
-         → {uploadURLs: [presigned_azure_url]}
-      2. PUT binary to presigned URL with Content-Type + x-ms-blob-type: BlockBlob
-      3. Return the base blob URL (without SAS params) for use in files[] array.
+    Flow:
+      1. POST /api/trpc/file.uploadFile?batch=1 {type:"image", count:1, includeReadUrl:true}
+         → {uploadURLs: [write_sas_url], readURLs: [read_sas_url]}
+      2. PUT binary to uploadURLs[0] with Content-Type + x-ms-blob-type: BlockBlob
+      3. POST /api/trpc/file.confirmUpload?batch=1 (required for images)
+      4. Return readURLs[0] — the SAS-signed read URL the model can actually fetch.
     """
     r = client.session.post(
         "https://chat.mistral.ai/api/trpc/file.uploadFile?batch=1",
-        json={"0": {"json": {"type": "image", "count": 1}}},
+        json={"0": {"json": {"type": "image", "count": 1, "includeReadUrl": True}}},
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         timeout=20,
     )
     if r.status_code not in (200, 201):
         raise HTTPException(status_code=502, detail=f"file.uploadFile failed: {r.text[:200]}")
 
-    upload_url = r.json()[0]["result"]["data"]["json"]["uploadURLs"][0]
-    blob_base_url = upload_url.split("?")[0]
+    result = r.json()[0]["result"]["data"]["json"]
+    upload_url = result["uploadURLs"][0]
+    read_url = result["readURLs"][0]
 
-    # Azure Blob SAS URLs use the SAS token in the URL for auth.
-    # Use urllib directly to avoid sending the session's Authorization: Bearer header,
-    # which Azure rejects when combined with a SAS URL.
-    import urllib.request
     req = urllib.request.Request(
         upload_url,
         data=image_bytes,
@@ -75,7 +75,14 @@ def _upload_image_to_blob(client, image_bytes: bytes, mime_type: str) -> str:
     if status not in (200, 201):
         raise HTTPException(status_code=502, detail=f"Blob PUT unexpected status: {status}")
 
-    return blob_base_url
+    client.session.post(
+        "https://chat.mistral.ai/api/trpc/file.confirmUpload?batch=1",
+        json={"0": {"json": {"uploadUrl": upload_url, "type": "image"}}},
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        timeout=10,
+    )
+
+    return read_url
 
 
 def _extract_images_from_messages(messages: list[Message]) -> tuple[str, list[dict]]:
@@ -103,22 +110,31 @@ def _extract_images_from_messages(messages: list[Message]) -> tuple[str, list[di
 def _upload_message_images(client, image_parts: list[dict]) -> list[dict]:
     """
     Upload images from OpenAI image_url content parts to Mistral blob storage.
-    Handles data: URIs (base64) and https:// URLs.
-    Returns list of {url, type} dicts for the files[] array.
+    Handles data: URIs (base64) and https:// URLs (fetched and re-uploaded).
+    Returns list of {url, type, name} dicts for the files[] array.
     """
     files = []
     for img in image_parts:
         url = img.get("url", "")
         if url.startswith("data:"):
-            # data:image/jpeg;base64,<b64>
             header, _, b64 = url.partition(",")
             mime = header.split(";")[0].replace("data:", "") or "image/jpeg"
             image_bytes = base64.b64decode(b64)
-            blob_url = _upload_image_to_blob(client, image_bytes, mime)
-            files.append({"url": blob_url, "type": "image"})
+            ext = mimetypes.guess_extension(mime) or ".jpg"
+            filename = f"image{ext}"
         elif url.startswith("https://") or url.startswith("http://"):
-            # Remote URL — pass directly (Mistral server will fetch it)
-            files.append({"url": url, "type": "image"})
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    image_bytes = resp.read()
+                    mime = resp.headers.get("Content-Type", "image/jpeg").split(";")[0]
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Failed to fetch image URL: {e}")
+            filename = url.rsplit("/", 1)[-1].split("?")[0] or "image.jpg"
+        else:
+            continue
+        read_url = _upload_image_to_blob(client, image_bytes, mime)
+        files.append({"url": read_url, "type": "image", "name": filename})
     return files
 
 
