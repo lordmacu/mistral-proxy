@@ -139,6 +139,7 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
 
     image_url = None
     revised_prompt = None
+    tool_interrupted = False  # isInterrupted:true → server-side quota exceeded
 
     raw = b""
     for chunk in resp.iter_content(chunk_size=None):
@@ -179,18 +180,27 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
                 path = patch.get("path", "")
                 op = patch.get("op")
 
-                # Full contentChunks replace
+                # Full contentChunks replace (tool_call arrives as a list)
                 if op == "replace" and path == "/contentChunks" and isinstance(val, list):
                     for chunk in val:
-                        if isinstance(chunk, dict) and chunk.get("type") == "image_url":
+                        if not isinstance(chunk, dict):
+                            continue
+                        if chunk.get("type") == "image_url":
                             meta = chunk.get("meta") or {}
                             image_url = (
                                 chunk.get("imageUrl")       # actual field name from APK SSE
                                 or meta.get("uri")
                                 or chunk.get("url")
                             )
+                        elif chunk.get("type") == "tool_call" and chunk.get("name") == "generate_image":
+                            # isInterrupted:true = server blocked the call (quota exceeded)
+                            if chunk.get("isInterrupted"):
+                                tool_interrupted = True
+                            args = chunk.get("publicArguments") or {}
+                            if isinstance(args, dict) and args.get("prompt"):
+                                revised_prompt = args["prompt"]
 
-                # Individual chunk append/replace
+                # Individual chunk patch
                 if "/contentChunks" in path and isinstance(val, dict):
                     if val.get("type") == "image_url":
                         meta = val.get("meta") or {}
@@ -199,14 +209,27 @@ def _generate_image_stream(client, prompt: str) -> tuple[str | None, str | None]
                             or meta.get("uri")
                             or val.get("url")
                         )
-                    elif val.get("type") == "tool_call":
+                    elif val.get("type") == "tool_call" and val.get("name") == "generate_image":
+                        if val.get("isInterrupted"):
+                            tool_interrupted = True
                         args = val.get("publicArguments") or {}
                         if isinstance(args, dict):
                             revised_prompt = args.get("prompt")
-                        # Fallback: publicResult.url from the generate_image tool response
                         result = val.get("publicResult") or {}
                         if isinstance(result, dict) and result.get("url") and not image_url:
                             image_url = result["url"]
+
+                # success:false on /contentChunks/0/success path also signals interruption
+                if path == "/contentChunks/0/success" and val is False:
+                    tool_interrupted = True
+
+    if tool_interrupted and not image_url:
+        raise HTTPException(
+            status_code=429,
+            detail="Image generation quota exceeded on the Mistral account. "
+                   "The server interrupted the generate_image tool call (isInterrupted=true). "
+                   "Try again tomorrow or use a different account.",
+        )
 
     return image_url, revised_prompt
 
@@ -225,7 +248,12 @@ def create_image(req: ImageGenerationRequest):
         image_url: str | None = None
         revised: str | None = None
         for attempt in range(_MAX_ATTEMPTS):
-            image_url, revised = _generate_image_stream(client, req.prompt)
+            try:
+                image_url, revised = _generate_image_stream(client, req.prompt)
+            except HTTPException as exc:
+                if exc.status_code == 429:
+                    raise  # quota exhausted — retrying won't help
+                raise
             if image_url:
                 break
             # BFL backend returned success but no image URL yet — retry.
