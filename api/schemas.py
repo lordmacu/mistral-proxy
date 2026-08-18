@@ -159,3 +159,16 @@ class ImageData(BaseModel):
 class ImageGenerationResponse(BaseModel):
     created: int
     data: list[ImageData]
+
+
+# ── Vision (image input) ──────────────────────────────────────────────────────
+
+class VisionRequest(BaseModel):
+    """Send one or more images + a text prompt to Mistral vision."""
+    prompt: str = "Describe this image."
+    # Each image: either a public URL or a data URI (data:image/...;base64,...)
+    images: list[str] = Field(default_factory=list)
+
+class VisionResponse(BaseModel):
+    text: str
+    conversation_id: Optional[str] = None

@@ -616,27 +616,32 @@ class MistralAnonChat:
         """
         Upload an image to Mistral's Azure Blob storage.
 
-        Flow (APK F78458 requestUploadUrl / createFileUploadTask):
-          1. POST /api/trpc/file.uploadFile {type:"image", count:1}
-             → {uploadURLs: [presigned_azure_url]}
-          2. PUT binary to the presigned URL with Content-Type + x-ms-blob-type: BlockBlob
-          3. Return blob base URL (without SAS params) for use in files[] array.
+        Flow (Next.js web app chunk 2nqt98tojzakk.js — uploadFiles function):
+          1. POST /api/trpc/file.uploadFile {type:"image", count:1, includeReadUrl:true}
+             → {uploadURLs: [write_sas_url], readURLs: [read_sas_url]}
+          2. PUT binary to uploadURLs[0] with Content-Type + x-ms-blob-type:BlockBlob
+          3. POST /api/trpc/file.confirmUpload {uploadUrl, type:"image"} (required for images)
+          4. Return readURLs[0] (read-only SAS URL) — this is what the AI uses to read the image.
 
-        Returns the blob URL string.
+        The raw blob URL without SAS (upload_url.split("?")[0]) does NOT work because
+        the blob container is private. The readURL includes a short-lived read SAS token.
+
+        Returns the read-SAS URL string.
         """
         self.bootstrap_session()
 
         r = self.session.post(
             f"{BASE_URL}/api/trpc/file.uploadFile?batch=1",
-            json={"0": {"json": {"type": "image", "count": 1}}},
+            json={"0": {"json": {"type": "image", "count": 1, "includeReadUrl": True}}},
             headers={"Content-Type": "application/json", "Accept": "application/json"},
             timeout=20,
         )
         if r.status_code not in (200, 201):
             raise RuntimeError(f"file.uploadFile tRPC failed: {r.status_code} {r.text[:200]}")
 
-        upload_url = r.json()[0]["result"]["data"]["json"]["uploadURLs"][0]
-        blob_url = upload_url.split("?")[0]
+        result = r.json()[0]["result"]["data"]["json"]
+        upload_url = result["uploadURLs"][0]
+        read_url = result["readURLs"][0]
 
         # Azure Blob SAS URLs use the SAS token in the URL for auth.
         # Use urllib directly to avoid sending the session's Authorization: Bearer header,
@@ -656,8 +661,16 @@ class MistralAnonChat:
         if status not in (200, 201):
             raise RuntimeError(f"Azure Blob PUT unexpected status: {status}")
 
-        self._log(f"Image uploaded → {blob_url}")
-        return blob_url
+        # Confirm the upload to Mistral's backend (required for images per web app source)
+        self.session.post(
+            f"{BASE_URL}/api/trpc/file.confirmUpload?batch=1",
+            json={"0": {"json": {"uploadUrl": upload_url, "type": "image"}}},
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=10,
+        )
+
+        self._log(f"Image uploaded → {read_url[:80]}...")
+        return read_url
 
     def _create_chat_trpc_with_files(self, message: str, files: list) -> str:
         """Like _create_chat_trpc but with files attached."""
@@ -712,8 +725,11 @@ class MistralAnonChat:
             if mime_type is None:
                 mime_type = "image/jpeg"
 
-        blob_url = self.upload_image_to_blob(image_bytes, mime_type)
-        files = [{"url": blob_url, "type": "image"}]
+        read_url = self.upload_image_to_blob(image_bytes, mime_type)
+        # name is required: web app source shows {type, url, name} in files array
+        import os as _os
+        fname = _os.path.basename(image_path_or_bytes) if isinstance(image_path_or_bytes, str) else "image.jpg"
+        files = [{"url": read_url, "type": "image", "name": fname}]
 
         self.chat_id = self._create_chat_trpc_with_files(message, files)
 

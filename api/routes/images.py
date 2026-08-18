@@ -11,15 +11,19 @@ Discovery (APK analysis):
 """
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import time
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from typing import Generator
 
 from fastapi import APIRouter, HTTPException
 
-from api.schemas import ImageGenerationRequest, ImageData, ImageGenerationResponse
+from api.schemas import ImageGenerationRequest, ImageData, ImageGenerationResponse, VisionRequest, VisionResponse
 from api.client import get_client
 
 router = APIRouter(tags=["images"])
@@ -270,3 +274,206 @@ def create_image(req: ImageGenerationRequest):
             )
 
     return ImageGenerationResponse(created=int(time.time()), data=results)
+
+
+# ── Vision ────────────────────────────────────────────────────────────────────
+
+def _upload_image(client, image_source: str) -> tuple[str, str]:
+    """
+    Upload a single image to Mistral's Azure Blob storage and return (read_url, filename).
+
+    image_source may be:
+      - A public HTTPS URL  → fetched with urllib then uploaded
+      - A data URI          → decoded then uploaded
+
+    Flow (Next.js web app chunk 2nqt98tojzakk.js):
+      1. file.uploadFile {type:"image", count:1, includeReadUrl:true} → SAS URLs
+      2. PUT binary to uploadURL with Content-Type + x-ms-blob-type:BlockBlob
+      3. file.confirmUpload {uploadUrl, type:"image"}
+      4. Return readURL (has read-only SAS token the model uses to fetch the image)
+    """
+    BASE = "https://chat.mistral.ai"
+
+    if image_source.startswith("data:"):
+        # data:image/jpeg;base64,<data>
+        header, _, b64 = image_source.partition(",")
+        mime_type = header.split(";")[0].replace("data:", "") or "image/jpeg"
+        image_bytes = base64.b64decode(b64)
+        ext = mimetypes.guess_extension(mime_type) or ".jpg"
+        filename = f"image{ext}"
+    else:
+        # Public URL — fetch it
+        req = urllib.request.Request(image_source, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                image_bytes = resp.read()
+                content_type = resp.headers.get("Content-Type", "image/jpeg").split(";")[0]
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch image URL: {exc}")
+        mime_type = content_type or "image/jpeg"
+        filename = image_source.rsplit("/", 1)[-1].split("?")[0] or "image.jpg"
+        if "." not in filename:
+            ext = mimetypes.guess_extension(mime_type) or ".jpg"
+            filename = f"image{ext}"
+
+    # Step 1: get SAS upload + read URLs
+    r = client.session.post(
+        f"{BASE}/api/trpc/file.uploadFile?batch=1",
+        json={"0": {"json": {"type": "image", "count": 1, "includeReadUrl": True}}},
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        timeout=20,
+    )
+    if r.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail=f"file.uploadFile failed: {r.text[:200]}")
+
+    result = r.json()[0]["result"]["data"]["json"]
+    upload_url = result["uploadURLs"][0]
+    read_url = result["readURLs"][0]
+
+    # Step 2: PUT to Azure Blob (no Authorization header — SAS token is in the URL)
+    put_req = urllib.request.Request(
+        upload_url,
+        data=image_bytes,
+        method="PUT",
+        headers={"Content-Type": mime_type, "x-ms-blob-type": "BlockBlob"},
+    )
+    try:
+        with urllib.request.urlopen(put_req, timeout=60) as put_resp:
+            if put_resp.status not in (200, 201):
+                raise HTTPException(status_code=502, detail=f"Azure Blob PUT returned {put_resp.status}")
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Azure Blob PUT failed: {exc.code} {exc.reason}")
+
+    # Step 3: confirm upload (required by Mistral for images)
+    client.session.post(
+        f"{BASE}/api/trpc/file.confirmUpload?batch=1",
+        json={"0": {"json": {"uploadUrl": upload_url, "type": "image"}}},
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        timeout=10,
+    )
+
+    return read_url, filename
+
+
+def _vision_stream(client, prompt: str, image_sources: list[str]) -> str:
+    """Upload images, create a chat, stream the response, return the full text."""
+    BASE = "https://chat.mistral.ai"
+
+    # Upload all images
+    files = []
+    for src in image_sources:
+        read_url, filename = _upload_image(client, src)
+        files.append({"type": "image", "url": read_url, "name": filename})
+
+    # Create chat with image attachments
+    trpc_input = {
+        "files": files,
+        "content": [{"type": "text", "text": prompt}],
+        "transcriptionsMetadata": [],
+        "features": [],
+        "integrations": [],
+        "libraries": [],
+        "productType": "chat",
+        "projectId": None,
+        "incognito": False,
+    }
+    r = client.session.post(
+        f"{BASE}/api/trpc/message.newChat?batch=1",
+        json={"0": {"json": trpc_input}},
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        timeout=30,
+    )
+    if r.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail=f"tRPC newChat failed: {r.text[:200]}")
+
+    chat_id = r.json()[0]["result"]["data"]["json"].get("chatId")
+    if not chat_id:
+        raise HTTPException(status_code=502, detail="No chatId from tRPC newChat")
+
+    # Stream generation
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    body = {
+        "mode": "start",
+        "chatId": chat_id,
+        "stableAnonymousIdentifier": client.stable_anon_id,
+        "platform": "mobile",
+        "clientPromptData": {"currentDate": now},
+        "supportedTaskCallbacks": [],
+        "features": [],
+        "libraries": [],
+        "integrations": [],
+        "disabledFeatures": ["memory-inference"],
+    }
+    resp = client.session.post(
+        f"{BASE}/api/chat",
+        json=body,
+        headers={"Accept": "text/event-stream", "Content-Type": "application/json"},
+        timeout=120,
+        stream=True,
+    )
+    if resp.status_code == 429:
+        raise HTTPException(status_code=429, detail=_error_detail(resp, "Rate limit reached"))
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail="API error: " + _error_detail(resp, f"HTTP {resp.status_code}"))
+
+    raw = b"".join(resp.iter_content(chunk_size=None))
+    text_parts: list[str] = []
+
+    for line in raw.decode("utf-8", errors="replace").split("\n"):
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        colon = line.index(":")
+        try:
+            line_type = int(line[:colon])
+            json_str = line[colon + 1:]
+        except ValueError:
+            continue
+        if not json_str or json_str == "null":
+            continue
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            continue
+
+        j = data.get("json", data) if isinstance(data, dict) else data
+        if not isinstance(j, dict):
+            continue
+
+        if line_type == 6:
+            msg = j.get("message") or j.get("detail") or json.dumps(j)[:200]
+            raise HTTPException(status_code=502, detail=f"API error: {msg}")
+
+        if j.get("type") == "message":
+            for patch in j.get("patches", []):
+                val = patch.get("value")
+                path = patch.get("path", "")
+                # Text arrives as op:append on /contentChunks/N/content
+                if isinstance(val, str) and "content" in path:
+                    text_parts.append(val)
+                elif isinstance(val, dict) and val.get("type") == "text":
+                    text_parts.append(val.get("text") or val.get("content") or "")
+
+    return "".join(text_parts), chat_id
+
+
+@router.post("/v1/vision", response_model=VisionResponse)
+def vision(req: VisionRequest):
+    """
+    Send one or more images + a text prompt to Mistral and get a text response.
+
+    Each image in `images` may be:
+      - A public HTTPS URL (fetched and uploaded automatically)
+      - A data URI: "data:image/jpeg;base64,..."
+
+    The flow uses the same file upload path as the Mistral Le Chat web app:
+    file.uploadFile → Azure Blob PUT → file.confirmUpload → message.newChat with files.
+    """
+    client = get_client()
+    if not client.session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated. POST /v1/auth/login first.")
+    if not req.images:
+        raise HTTPException(status_code=400, detail="Provide at least one image in `images`.")
+
+    text, chat_id = _vision_stream(client, req.prompt, req.images)
+    return VisionResponse(text=text, conversation_id=chat_id)

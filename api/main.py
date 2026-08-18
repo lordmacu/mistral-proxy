@@ -8,7 +8,8 @@ Endpoints (63 total):
   GET  /v1/auth/me                — current auth status
   GET  /v1/models                 — list available models (20+ models)
   POST /v1/chat/completions       — OpenAI-compatible chat (stream, vision, audio)
-  POST /v1/images/generations     — OpenAI-compatible image generation
+  POST /v1/images/generations     — OpenAI-compatible image generation (text → image via beta-imagegen)
+  POST /v1/vision                 — send image(s) + prompt → text (URL or data URI input)
   POST /v1/audio/speech           — TTS: text → WAV 24kHz mono
   POST /v1/audio/transcriptions   — STT: audio → text (Whisper-compatible)
   POST /v1/audio/speak            — read-aloud existing message by IDs (SSE)
