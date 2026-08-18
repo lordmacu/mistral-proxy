@@ -283,8 +283,39 @@ class MistralAnonChat:
         self.session_token = token
         self.session.headers["Authorization"] = f"Bearer {token}"
         identity = data.get("identity", {})
+
+        # Kratos returns the verification flow_id in continue_with so callers can
+        # verify the email without triggering a second email send.
+        verif_flow_id = None
+        for step in data.get("continue_with") or []:
+            if step.get("action") == "show_verification_ui":
+                verif_flow_id = step.get("flow", {}).get("id")
+                break
+
         self._log(f"Registered — identity: {identity.get('id')} | token: {token[:20]}...")
-        return token
+        if verif_flow_id:
+            self._log(f"Verification flow_id: {verif_flow_id}")
+        return token, verif_flow_id
+
+    def verify_email(self, flow_id: str, code: str) -> bool:
+        """
+        Submit a verification code using the flow_id from register().
+
+        Returns True if passed_challenge, raises RuntimeError otherwise.
+        """
+        resp = self.session.post(
+            f"{AUTH_URL}/self-service/verification?flow={flow_id}",
+            json={"method": "code", "code": code},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            timeout=15,
+        )
+        data = resp.json()
+        state = data.get("state")
+        if state == "passed_challenge":
+            self._log("Email verified successfully")
+            return True
+        msgs = [m.get("text", "") for m in data.get("ui", {}).get("messages", [])]
+        raise RuntimeError(f"Verification failed (state={state}): {'; '.join(msgs)}")
 
     def logout(self):
         """Remove the session token (revert to anonymous mode)."""

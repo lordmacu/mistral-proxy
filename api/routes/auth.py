@@ -19,14 +19,24 @@ def login(req: LoginRequest):
         raise HTTPException(status_code=401, detail=str(e))
 
 
-@router.post("/register", response_model=AuthResponse)
+@router.post("/register")
 def register(req: RegisterRequest):
     client = get_client()
     try:
-        token = client.register(req.email, req.password, req.first_name, req.last_name)
+        token, verif_flow_id = client.register(req.email, req.password, req.first_name, req.last_name)
         os.environ["MISTRAL_SESSION_TOKEN"] = token
         reset_client()
-        return AuthResponse(token=token)
+        return {"token": token, "verification_flow_id": verif_flow_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/verify-email")
+def verify_email(req: dict):
+    client = get_client()
+    try:
+        client.verify_email(req["flow_id"], req["code"])
+        return {"verified": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
