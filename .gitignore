@@ -22,3 +22,13 @@ modules/
 
 # macOS
 .DS_Store
+
+# Credential backups. `.env` is already ignored above, but a copy saved under
+# another name is not -- and .env.bak-cgarcialord holds a real MISTRAL_PASSWORD
+# and MISTRAL_SESSION_TOKEN in plaintext.
+.env.bak*
+.env.*.bak
+
+# Reverse-engineering scratch: 558 MB of decompiled Hermes engine source.
+# Not this proxy's code, and not something to carry in its history.
+hermes-decomp/
