@@ -47,7 +47,7 @@ class AudioSpeechRequest(BaseModel):
     model: str = "mistral-tts-1"
     input: str
     voice: str = "alloy"
-    response_format: str = "wav"
+    response_format: str = "mp3"
     speed: float = 1.0
 
 
@@ -62,6 +62,49 @@ class ReadAloudRequest(BaseModel):
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+# ── El contrato de audio, compartido por los cinco proxies ───────────────────
+# 4096 es el límite de la API de OpenAI y el que perplexity-proxy ya declaraba.
+# Se comprueba ANTES de llamar al backend, lo que acá vale doble: la síntesis de
+# mistral crea un chat de verdad, así que una petición demasiado larga gastaba
+# uno de los 40 `message_send` de la cuenta para después fallar.
+MAX_INPUT_CHARS = 4096
+
+# MP3 es el formato por defecto en los cinco proxies. Este devolvía WAV, que es
+# el mismo audio a ~4x el tamaño (540 KB contra 129-165 KB medidos sobre la
+# misma frase), y obligaba a cualquier cliente a tratar a mistral distinto --
+# que es justo lo que el gateway delante existe para evitar.
+SUPPORTED_FORMATS = ("mp3", "wav")
+MP3_BITRATE_KBPS = 128
+SAMPLE_RATE = 24000
+
+
+def _pcm_float32_to_mp3(pcm_bytes: bytes, sample_rate: int = SAMPLE_RATE) -> bytes:
+    """Encode raw float32 PCM straight to MP3.
+
+    Encoded from the PCM rather than from the WAV on purpose: the WAV is only a
+    container this proxy builds itself, so going through it would mean writing a
+    header just to parse it back. lameenc is a pip wheel with LAME bundled --
+    no ffmpeg, no apt package, nothing new in the image beyond the wheel.
+    """
+    import lameenc
+
+    n_samples = len(pcm_bytes) // 4
+    if n_samples == 0:
+        raise HTTPException(status_code=502, detail="Empty audio response from Mistral")
+    samples_f32 = struct.unpack(f"<{n_samples}f", pcm_bytes[:n_samples * 4])
+    samples_i16 = struct.pack(
+        f"<{n_samples}h",
+        *[max(-32768, min(32767, int(s * 32767))) for s in samples_f32],
+    )
+
+    encoder = lameenc.Encoder()
+    encoder.set_bit_rate(MP3_BITRATE_KBPS)
+    encoder.set_in_sample_rate(sample_rate)
+    encoder.set_channels(1)
+    encoder.set_quality(2)          # 0 = best/slowest, 9 = worst/fastest
+    return bytes(encoder.encode(samples_i16)) + bytes(encoder.flush())
+
 
 def _pcm_float32_to_wav(pcm_bytes: bytes, sample_rate: int = 24000, channels: int = 1) -> bytes:
     """Convert raw float32 PCM from /api/read-aloud to standard 16-bit PCM WAV."""
@@ -256,6 +299,27 @@ def _upload_audio_to_blob(client, audio_bytes: bytes, mime_type: str) -> str:
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 
+@router.get("/v1/audio/voices")
+def list_voices():
+    """What this proxy accepts for text-to-speech. Standard across the five.
+
+    `voices` is EMPTY here, and that is the truth rather than an omission:
+    Mistral's read-aloud backend takes no voice at all. The `voice` field on
+    the request is accepted for OpenAI compatibility and ignored -- which is
+    why `alloy` appeared to "work" on this proxy while it broke two others.
+    `selection: "none"` says so in a way a client can branch on.
+    """
+    return {
+        "default": None,
+        "voices": [],
+        "openai_aliases": {},
+        "selection": "none",
+        "max_input_chars": MAX_INPUT_CHARS,
+        "formats": list(SUPPORTED_FORMATS),
+        "default_format": "mp3",
+    }
+
+
 @router.post("/v1/audio/speech")
 def create_speech(req: AudioSpeechRequest):
     """
@@ -274,6 +338,24 @@ def create_speech(req: AudioSpeechRequest):
     if not req.input.strip():
         raise HTTPException(status_code=400, detail="input text is empty")
 
+    # Checked BEFORE _create_tts_chat, which is the call that spends one of the
+    # account's 40 message_send points. Rejecting afterwards would charge the
+    # user for a request that was never going to work.
+    if len(req.input) > MAX_INPUT_CHARS:
+        raise HTTPException(status_code=400, detail={"error": {
+            "type": "invalid_request_error",
+            "message": f"input is {len(req.input)} characters, the limit is {MAX_INPUT_CHARS}",
+            "param": "input",
+            "max_input_chars": MAX_INPUT_CHARS}})
+
+    fmt = (req.response_format or "mp3").strip().lower()
+    if fmt not in SUPPORTED_FORMATS:
+        raise HTTPException(status_code=400, detail={"error": {
+            "type": "invalid_request_error",
+            "message": f"unsupported response_format '{req.response_format}'",
+            "param": "response_format",
+            "supported": list(SUPPORTED_FORMATS)}})
+
     try:
         chat_id, message_id, message_version = _create_tts_chat(client, req.input)
     except HTTPException:
@@ -288,12 +370,15 @@ def create_speech(req: AudioSpeechRequest):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"read-aloud failed: {e}")
 
-    wav = _pcm_float32_to_wav(pcm)
+    if fmt == "wav":
+        audio, media_type, filename = _pcm_float32_to_wav(pcm), "audio/wav", "speech.wav"
+    else:
+        audio, media_type, filename = _pcm_float32_to_mp3(pcm), "audio/mpeg", "speech.mp3"
     return Response(
-        content=wav,
-        media_type="audio/wav",
+        content=audio,
+        media_type=media_type,
         headers={
-            "Content-Disposition": 'attachment; filename="speech.wav"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Chat-Id": chat_id,
             "X-Message-Id": message_id,
             "X-Message-Version": message_version,

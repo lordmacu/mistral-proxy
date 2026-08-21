@@ -165,3 +165,58 @@ def test_chat_is_never_gated_off(monkeypatch):
     en anónimo — el gate no puede apagar lo único que anda siempre."""
     monkeypatch.setattr(capabilities, "snapshot", lambda: ANON)
     capabilities.require("chat")   # no raise
+
+
+# ── El contrato de audio, común a los cinco proxies ───────────────────────────
+
+def test_the_voices_endpoint_publishes_the_limits():
+    """Antes no había forma de preguntar ni las voces ni el máximo de caracteres,
+    que es exactamente por qué se mandó una voz inválida."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    body = TestClient(app).get("/v1/audio/voices").json()
+    assert body["max_input_chars"] == 4096
+    assert body["default_format"] == "mp3"
+    assert "mp3" in body["formats"]
+
+
+def test_this_backend_admits_it_has_no_voice_selection():
+    """`alloy` parecía funcionar acá sólo porque el parámetro se descarta."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    body = TestClient(app).get("/v1/audio/voices").json()
+    assert body["selection"] == "none"
+    assert body["voices"] == []
+
+
+def test_mp3_is_the_default_format():
+    from api.routes.audio import AudioSpeechRequest
+
+    assert AudioSpeechRequest(input="hola").response_format == "mp3"
+
+
+def test_the_encoder_produces_a_real_mp3_frame():
+    import math
+    import struct
+
+    from api.routes.audio import SAMPLE_RATE, _pcm_float32_to_mp3
+
+    pcm = b"".join(struct.pack("<f", 0.3 * math.sin(2 * math.pi * 440 * i / SAMPLE_RATE))
+                   for i in range(SAMPLE_RATE // 4))
+    mp3 = _pcm_float32_to_mp3(pcm)
+    assert mp3[:2] == b"\xff\xf3"       # MPEG frame sync
+    assert len(mp3) > 1000
+
+
+def test_mp3_is_much_smaller_than_the_wav_it_replaces():
+    """El motivo del cambio: mismo audio, ~4x el tamaño medido sobre la misma frase."""
+    import math
+    import struct
+
+    from api.routes.audio import SAMPLE_RATE, _pcm_float32_to_mp3, _pcm_float32_to_wav
+
+    pcm = b"".join(struct.pack("<f", 0.3 * math.sin(2 * math.pi * 440 * i / SAMPLE_RATE))
+                   for i in range(SAMPLE_RATE // 2))
+    assert len(_pcm_float32_to_mp3(pcm)) * 2 < len(_pcm_float32_to_wav(pcm))
