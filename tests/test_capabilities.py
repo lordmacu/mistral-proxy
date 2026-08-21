@@ -119,3 +119,49 @@ def test_snapshot_makes_no_vendor_call(clean_env, monkeypatch):
 
     monkeypatch.setattr(api.client, "get_client", explode)
     assert capabilities.snapshot().mode == "anonymous"
+
+
+# ── El gate de §3.4 ───────────────────────────────────────────────────────────
+
+def test_a_false_capability_answers_501_not_404():
+    """404 es indistinguible de un error de ruteo, y 503 hace que el gateway
+    reintente algo que nunca iba a funcionar en esta configuración."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    client = TestClient(app)
+    for method, path in (("post", "/v1/translate"),
+                         ("post", "/v1/files"),
+                         ("get", "/v1/files"),
+                         ("get", "/v1/files/abc"),
+                         ("delete", "/v1/files/abc")):
+        assert getattr(client, method)(path).status_code == 501, path
+
+
+def test_the_gate_names_the_capability_and_where_to_look():
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    detail = TestClient(app).post("/v1/translate").json()["detail"]
+    assert "translate" in detail and "/health" in detail
+
+
+def test_require_passes_for_a_capability_this_proxy_has(monkeypatch):
+    monkeypatch.setattr(capabilities, "snapshot", lambda: ACCOUNT)
+    capabilities.require("conversations")   # no raise
+
+
+def test_require_refuses_an_account_capability_when_anonymous(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(capabilities, "snapshot", lambda: ANON)
+    with pytest.raises(HTTPException) as exc:
+        capabilities.require("conversations")
+    assert exc.value.status_code == 501
+
+
+def test_chat_is_never_gated_off(monkeypatch):
+    """mistral responde sin cuenta, así que `require("chat")` debe pasar incluso
+    en anónimo — el gate no puede apagar lo único que anda siempre."""
+    monkeypatch.setattr(capabilities, "snapshot", lambda: ANON)
+    capabilities.require("chat")   # no raise

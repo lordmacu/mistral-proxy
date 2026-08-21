@@ -121,6 +121,24 @@ app.include_router(skills.router)
 app.include_router(vibe.router)
 
 
+# ── Capability gate (spec §3.4) ───────────────────────────────────────────────
+# These endpoints exist ONLY so a client trying them gets 501 rather than
+# FastAPI's generic 404. There is no implementation behind them, which is the
+# point -- `capabilities.require` raises, and its docstring says why not 404.
+
+@app.post("/v1/translate", tags=["meta"], summary="Not implemented (501)")
+def translate_not_implemented():
+    capabilities.require("translate")
+
+
+@app.api_route("/v1/files", methods=["GET", "POST"], tags=["meta"],
+               summary="Not implemented (501)")
+@app.api_route("/v1/files/{file_id}", methods=["GET", "DELETE"], tags=["meta"],
+               summary="Not implemented (501)")
+def files_not_implemented(file_id: str = ""):
+    capabilities.require("files")
+
+
 @app.get("/health")
 def health():
     """The proxy capability contract (llm-libre spec 2026-08-20).

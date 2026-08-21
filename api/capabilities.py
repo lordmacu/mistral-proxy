@@ -134,3 +134,26 @@ def effective(state: SessionState) -> dict:
         "files":               False,
         "conversations":       account,
     }
+
+
+def require(name: str) -> None:
+    """Refuse with 501 when this proxy cannot serve `name` right now (spec §3.4).
+
+    501, not 404 and not 503, and the distinction is load-bearing for the
+    gateway in front. A 404 is indistinguishable from a routing mistake. A 503
+    says "it broke" -- so the gateway retries, accumulates suspicion against the
+    route and fails over, spending attempts on something that was never going to
+    work in this configuration. 501 says: this proxy, deliberately, does not do
+    this right now.
+
+    Synchronous on purpose: `snapshot()` reads environment variables, with no
+    lock and no vendor call. Lives here rather than in api/main.py so the
+    routers can gate their own endpoints without importing the app.
+    """
+    from fastapi import HTTPException
+
+    if not effective(snapshot())[name]:
+        raise HTTPException(
+            501,
+            f"This proxy cannot serve '{name}' in its current configuration "
+            f"(see GET /health, capabilities.{name}).")
