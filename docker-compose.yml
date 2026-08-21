@@ -1,15 +1,34 @@
+# El volumen se declara ACÁ, en el repo, no en la configuración de la app.
+#
+# Con el build pack `dockerfile` la persistencia era algo que alguien tenía que
+# crear a mano una vez por aplicación, y que se perdía si la app se recreaba.
+# `VOLUME /app/data` en el Dockerfile tampoco alcanza: Docker crea un volumen
+# ANÓNIMO nuevo por contenedor, así que documenta la intención sin persistir
+# nada entre despliegues.
+#
+# Las variables se enumeran una por una a propósito. Coolify sustituye las que
+# el compose nombra; una que no esté acá no llega al contenedor, y el fallo
+# aparece en runtime como "no autenticado" en vez de como un error de arranque.
 services:
-  mistral-proxy:
+  mistral:
     build: .
     ports:
-      - "8001:8000"
-    env_file:
-      - .env
+      - "8894:8000"
     environment:
-      - DEBUG=${DEBUG:-false}
+      - DEBUG=${DEBUG:-}
+      - MISTRAL_EMAIL=${MISTRAL_EMAIL:-}
+      - MISTRAL_PASSWORD=${MISTRAL_PASSWORD:-}
+      - MISTRAL_SESSION_TOKEN=${MISTRAL_SESSION_TOKEN:-}
+    volumes:
+      - mistral-data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 20s
+
+volumes:
+  mistral-data:
