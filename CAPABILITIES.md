@@ -14,8 +14,8 @@ apaga una capacidad.
 
 | Capacidad | Con cuenta | Anónimo | Por qué |
 |---|:--:|:--:|---|
-| `chat` | ✅ | ✅ | **Medido sin credenciales.** Ver abajo — mistral es el único de los cinco proxies del que esto es cierto. |
-| `streaming` | ✅ | ✅ | Lo mismo, y por construcción: `chat()` itera `send_message()`, un generador que emite tokens según llegan. |
+| `chat` | ✅ | ❌ | Requiere cuenta. Ver la corrección de abajo: se reportó `✅` en anónimo por medir la capa equivocada. |
+| `streaming` | ✅ | ❌ | Lo mismo — la ruta es la misma y el gate está antes. |
 | `tools` | ❌ | ❌ | No hay function calling; nada emite `tool_calls`. La emulación por inyección de prompt vive en el **gateway** (`emulates_tools`) — reportar `true` acá sería atribuirse trabajo ajeno. |
 | `vision` | ✅ | ❌ | `api/routes/chat.py` extrae las partes `image_url` y las sube al blob storage de Mistral (`upload_image_to_blob`). |
 | `images` | ✅ | ❌ | `/v1/images/generations`. |
@@ -29,24 +29,29 @@ apaga una capacidad.
 Ocho de once con cuenta. Los tres `❌` permanentes necesitan código nuevo, no una
 cuenta mejor.
 
-## El chat anónimo
+## El chat anónimo que no existe (corregido 2026-08-21)
 
-mistral es **el único de los cinco proxies cuyo chat funciona sin cuenta**, y no
-es una suposición sacada del nombre del módulo: con `MISTRAL_SESSION_TOKEN`,
-`MISTRAL_EMAIL` y `MISTRAL_PASSWORD` borradas del entorno, un
-`MistralAnonChat()` con solo `bootstrap_session()` respondió a un prompt.
+Este documento decía que mistral era **el único de los cinco proxies cuyo chat
+funciona sin cuenta**, y que estaba medido. La medición existía, pero era de la
+capa equivocada.
 
-Por eso `effective()` deja `chat` y `streaming` en `true` en los dos modos —
-una asimetría deliberada respecto de los otros cuatro proxies, y la aserción que
-hay que revisar si alguien intenta "unificar" este módulo con ellos.
+`MistralAnonChat().chat()` — la clase de Python — sí responde sin ninguna
+credencial. Eso se comprobó con el entorno limpio. Pero **nadie llega a esa
+clase por HTTP**: `POST /v1/chat/completions` comprueba `client.session_token`
+antes que nada y devuelve `401` sin él
+(`api/routes/chat.py:308`).
 
-**Límite honesto del modo anónimo:** solo `chat` y `streaming` se midieron sin
-credenciales. Las seis capacidades atadas a la cuenta se reportan `false` en
-anónimo porque **no se midieron ahí**, no porque una medición las haya visto
-fallar. La dirección del error es deliberada — subdeclarar le cuesta al gateway
-una ruta que podría haber usado, sobredeclarar le cuesta al usuario una petición
-rota — y la instancia desplegada tiene credenciales, así que hoy esa rama es
-teoría. Medir antes de aflojarla.
+Resultado: un despliegue anónimo publicaba `chat: true` y rechazaba todas las
+peticiones. Que es exactamente el fallo que este contrato existe para evitar —
+la regla dice qué **logra** una petición, y lo que lograba era un 401.
+
+Lo encontró una corrida real del instalador contra un contenedor anónimo. No lo
+habría encontrado ninguna cantidad de lectura de código: el error estaba en
+creer que la medición correspondía a la ruta.
+
+Si alguien más adelante hace que el proxy caiga al cliente anónimo cuando no
+hay sesión, estos dos booleanos pueden volver a `true` — pero recién después de
+que una petición por HTTP devuelva texto.
 
 ## Conversaciones: la forma de referencia
 

@@ -81,14 +81,20 @@ def auth_block(state: SessionState) -> dict:
 def effective(state: SessionState) -> dict:
     """The eleven booleans, as of 2026-08-20.
 
-    MEASURED, with every credential stripped from the environment:
-      `chat` / `streaming` -- True in BOTH modes, and mistral is the only
-        proxy of the five for which that holds. An anonymous
-        `MistralAnonChat` answered a prompt after nothing but
-        `bootstrap_session()`. It is also the streaming path by
-        construction: `chat()` iterates `send_message()`, a generator that
-        yields tokens as they arrive, so the measurement exercised the SSE
-        path rather than a batch endpoint.
+    CORRECTED 2026-08-21, and the correction is the point of this comment.
+    These were reported True in BOTH modes on the strength of a measurement
+    taken at the WRONG LAYER: `MistralAnonChat().chat()` -- the Python class --
+    does answer with no credentials at all. But nobody reaches that class over
+    HTTP. `POST /v1/chat/completions` checks `client.session_token` first and
+    answers 401 without one (api/routes/chat.py:308).
+
+    So an anonymous deployment reported `chat: true` and refused every request.
+    That is exactly the failure this contract exists to prevent, produced by
+    measuring the library instead of the endpoint. The rule is what a REQUEST
+    achieves; the request achieves 401.
+
+    Found by running the installer end to end against a real anonymous
+    container, which is the only check that could have caught it.
 
     READ OFF THE CODE, and gated on an account:
       `vision` -- True. `api/routes/chat.py` pulls `image_url` content parts
@@ -112,18 +118,16 @@ def effective(state: SessionState) -> dict:
         routes belong to the code-session feature, not to a general file API,
         and mapping them onto `files` would promise something else entirely.
 
-    HONEST LIMIT ON THE ANONYMOUS BRANCH: only `chat` and `streaming` were
-    measured without credentials. The six account-gated booleans above are
-    reported False in anonymous mode because they were NOT measured there, not
-    because a measurement showed them failing. That direction is deliberate --
-    under-claiming costs a route the gateway could have used, over-claiming
-    costs a user a broken request -- and the deployed instance holds
-    credentials, so the branch is theory today. Measure before loosening it.
+    EVERY capability here now requires an account, and that is measured at the
+    endpoint rather than inferred: an anonymous container answers 401 to
+    /v1/chat/completions. If someone later makes the proxy fall back to the
+    anonymous client when no session exists, these two can go back to True --
+    but only after a request through the HTTP route returns text.
     """
     account = state.mode == "account"
     return {
-        "chat":                True,
-        "streaming":           True,
+        "chat":                account,
+        "streaming":           account,
         "tools":               False,
         "vision":              account,
         "images":              account,

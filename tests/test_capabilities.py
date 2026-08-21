@@ -41,23 +41,24 @@ def test_an_account_gains_exactly_the_eight():
     }
 
 
-def test_chat_survives_without_an_account():
-    """Medido: con el entorno sin credenciales, un cliente anónimo respondió.
+def test_chat_does_not_survive_without_an_account():
+    """La corrección del 2026-08-21, y el motivo de que exista este test.
 
-    mistral es el único de los cinco proxies del que esto es cierto, así que es
-    la aserción que hay que revisar si alguien "unifica" este módulo con los
-    otros cuatro.
+    `MistralAnonChat().chat()` -- la clase de Python -- sí responde sin
+    credenciales, y sobre esa medición se reportó `chat: true` en anónimo. Pero
+    nadie llega a esa clase por HTTP: `POST /v1/chat/completions` comprueba
+    `client.session_token` antes que nada y devuelve 401 sin él.
+
+    Medir la librería en vez del endpoint hizo que un despliegue anónimo
+    declarara `chat: true` y rechazara todas las peticiones.
     """
-    anon = capabilities.effective(ANON)
-    assert anon["chat"] is True
-    assert anon["streaming"] is True
+    assert capabilities.effective(ANON)["chat"] is False
+    assert capabilities.effective(ANON)["streaming"] is False
 
 
-def test_anonymous_loses_everything_that_needs_the_account():
-    anon = capabilities.effective(ANON)
-    assert not any(anon[k] for k in
-                   ("vision", "images", "audio_speech", "audio_transcription",
-                    "search", "conversations"))
+def test_anonymous_can_do_nothing_at_all():
+    """Sin cuenta este proxy no logra NADA, y el contrato mide lo que se logra."""
+    assert not any(capabilities.effective(ANON).values())
 
 
 @pytest.mark.parametrize("cap", ["tools", "translate", "files"])
@@ -160,11 +161,14 @@ def test_require_refuses_an_account_capability_when_anonymous(monkeypatch):
     assert exc.value.status_code == 501
 
 
-def test_chat_is_never_gated_off(monkeypatch):
-    """mistral responde sin cuenta, así que `require("chat")` debe pasar incluso
-    en anónimo — el gate no puede apagar lo único que anda siempre."""
+def test_chat_is_gated_off_without_an_account(monkeypatch):
+    """Antes este test afirmaba lo contrario, sobre la medición equivocada."""
+    from fastapi import HTTPException
+
     monkeypatch.setattr(capabilities, "snapshot", lambda: ANON)
-    capabilities.require("chat")   # no raise
+    with pytest.raises(HTTPException) as exc:
+        capabilities.require("chat")
+    assert exc.value.status_code == 501
 
 
 # ── El contrato de audio, común a los cinco proxies ───────────────────────────
