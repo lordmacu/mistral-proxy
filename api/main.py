@@ -84,6 +84,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import auth, models, chat, conversations, vibe, images, audio, users, skills
+from api import capabilities
 from api.client import get_client
 
 
@@ -122,10 +123,33 @@ app.include_router(vibe.router)
 
 @app.get("/health")
 def health():
-    client = get_client()
+    """The proxy capability contract (llm-libre spec 2026-08-20).
+
+    Unauthenticated and vendor-call-free on purpose (spec 3.1). That second
+    part is a real change: this handler used to call `get_client()`, which on
+    a cold container runs `_authenticate()` and `bootstrap_session()` -- two
+    round trips to Mistral. A health endpoint that reaches the vendor cannot
+    answer while the vendor is down, which is exactly when the gateway's sweep
+    and the container's own healthcheck need an answer.
+
+    `capabilities` is EFFECTIVE -- what a request would achieve right now, not
+    what this codebase implements -- so the gateway reads one boolean instead
+    of learning what a Mistral session is. See api/capabilities.py.
+
+    `status` and `authenticated` are both kept: they were the whole response
+    before the contract landed, and anything already pointing here must not
+    break on the upgrade. `authenticated` now comes from the same local
+    credential read as the rest, rather than from a live client.
+    """
+    state = capabilities.snapshot()
     return {
-        "status": "ok",
-        "authenticated": bool(client.session_token),
+        "status":       "ok",
+        "authenticated": state.mode == "account",
+        "version":      "1.0.0",
+        "contract":     1,
+        "provider":     "mistral",
+        "auth":         capabilities.auth_block(state),
+        "capabilities": capabilities.effective(state),
     }
 
 
