@@ -26,6 +26,7 @@ Dependencies: pip install curl-cffi
 """
 
 import base64
+import codecs
 import json
 import mimetypes
 import os
@@ -393,6 +394,90 @@ class MistralAnonChat:
         self._log(f"Chat created: {chat_id}")
         return chat_id
 
+    def _parse_line(self, line: str, current_chunks: dict) -> Generator[str, None, None]:
+        """
+        Parse one already-stripped `<type_num>:<json>` line and yield any text
+        tokens it carries.
+
+        Extracted verbatim out of `_parse_stream` so the wire format can be fed
+        to it incrementally, line by line, instead of only after the whole
+        body has been buffered. Every branch below does exactly what it did
+        before the extraction; only the early-exit `continue`s (this no longer
+        loops over lines itself) became `return`s.
+        """
+        if not line or ":" not in line:
+            return
+
+        colon = line.index(":")
+        try:
+            line_type = int(line[:colon])
+            json_str = line[colon + 1:]
+        except ValueError:
+            return
+
+        if not json_str or json_str == "null":
+            return
+
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            self._log(f"Bad JSON on line type {line_type}: {json_str[:100]}")
+            return
+
+        j = data.get("json", data) if isinstance(data, dict) else data
+        if not isinstance(j, dict):
+            return
+
+        if line_type == 6:
+            msg = j.get("message", str(j))
+            code = j.get("internalCode", 0)
+            retry = j.get("retryAfterSeconds", 0)
+            if code == 6200 or retry:
+                raise RateLimitError(retry)
+            raise RuntimeError(f"API error {code}: {msg}")
+
+        msg_type = j.get("type")
+
+        if msg_type == "bootstrap":
+            chat = j.get("chat", {})
+            if chat.get("id"):
+                self.chat_id = chat["id"]
+                self._log(f"Stream confirmed chatId: {self.chat_id}")
+            return
+
+        if msg_type == "message":
+            msg_id = j.get("messageId")
+            if not msg_id:
+                return
+            msg_version = j.get("messageVersion")
+
+            for patch in j.get("patches", []):
+                op = patch.get("op")
+                path = patch.get("path", "")
+                val = patch.get("value")
+
+                if op == "replace" and path == "/":
+                    if isinstance(val, dict) and val.get("role") == "assistant":
+                        self.last_assistant_msg_id = msg_id
+                        self.last_assistant_msg_version = str(msg_version) if msg_version is not None else None
+                        current_chunks[msg_id] = ""
+                    continue
+
+                if op == "replace" and "/contentChunks" in path:
+                    if isinstance(val, list):
+                        for ci in val:
+                            if isinstance(ci, dict) and ci.get("type") == "text":
+                                token = ci.get("text", "")
+                                current_chunks[msg_id] = token
+                                if token:
+                                    yield token
+                    continue
+
+                if op == "append" and "/contentChunks" in path:
+                    if isinstance(val, str) and val:
+                        current_chunks[msg_id] = current_chunks.get(msg_id, "") + val
+                        yield val
+
     def _parse_stream(self, resp) -> Generator[str, None, None]:
         """
         Parse Mistral's streaming format: <type_num>:<json>\\n per line.
@@ -402,90 +487,34 @@ class MistralAnonChat:
           Type  6 — error
           Type  8 — end of stream
 
-        Yields text tokens; updates self.chat_id and self.last_assistant_msg_id.
+        Line-incremental: yields tokens as each complete line arrives instead
+        of after the whole body has been read, so a client watching the SSE
+        response actually sees a stream. Updates self.chat_id and
+        self.last_assistant_msg_id as a side effect, same as before.
+
+        Uses an INCREMENTAL utf-8 decoder (not `chunk.decode()` per chunk):
+        `iter_content(chunk_size=None)` splits at arbitrary byte offsets,
+        including the middle of a multi-byte character, and Mistral answers
+        in Spanish constantly -- a per-chunk `.decode()` would corrupt any
+        `ñ` or accent that straddles a chunk boundary.
         """
-        raw = b""
-        for chunk in resp.iter_content(chunk_size=None):
-            raw += chunk
-
-        self._log(f"Stream raw ({len(raw)} bytes): {raw[:500]!r}")
-
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        buffer = ""
+        total = 0
         current_chunks: dict = {}
 
-        for line in raw.decode("utf-8", errors="replace").split("\n"):
-            line = line.strip()
-            if not line or ":" not in line:
-                continue
+        for chunk in resp.iter_content(chunk_size=None):
+            total += len(chunk)
+            buffer += decoder.decode(chunk)
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                yield from self._parse_line(line.strip(), current_chunks)
 
-            colon = line.index(":")
-            try:
-                line_type = int(line[:colon])
-                json_str = line[colon + 1:]
-            except ValueError:
-                continue
+        buffer += decoder.decode(b"", final=True)
+        if buffer.strip():
+            yield from self._parse_line(buffer.strip(), current_chunks)
 
-            if not json_str or json_str == "null":
-                continue
-
-            try:
-                data = json.loads(json_str)
-            except json.JSONDecodeError:
-                self._log(f"Bad JSON on line type {line_type}: {json_str[:100]}")
-                continue
-
-            j = data.get("json", data) if isinstance(data, dict) else data
-            if not isinstance(j, dict):
-                continue
-
-            if line_type == 6:
-                msg = j.get("message", str(j))
-                code = j.get("internalCode", 0)
-                retry = j.get("retryAfterSeconds", 0)
-                if code == 6200 or retry:
-                    raise RateLimitError(retry)
-                raise RuntimeError(f"API error {code}: {msg}")
-
-            msg_type = j.get("type")
-
-            if msg_type == "bootstrap":
-                chat = j.get("chat", {})
-                if chat.get("id"):
-                    self.chat_id = chat["id"]
-                    self._log(f"Stream confirmed chatId: {self.chat_id}")
-                continue
-
-            if msg_type == "message":
-                msg_id = j.get("messageId")
-                if not msg_id:
-                    continue
-                msg_version = j.get("messageVersion")
-
-                for patch in j.get("patches", []):
-                    op = patch.get("op")
-                    path = patch.get("path", "")
-                    val = patch.get("value")
-
-                    if op == "replace" and path == "/":
-                        if isinstance(val, dict) and val.get("role") == "assistant":
-                            self.last_assistant_msg_id = msg_id
-                            self.last_assistant_msg_version = str(msg_version) if msg_version is not None else None
-                            current_chunks[msg_id] = ""
-                        continue
-
-                    if op == "replace" and "/contentChunks" in path:
-                        if isinstance(val, list):
-                            for ci in val:
-                                if isinstance(ci, dict) and ci.get("type") == "text":
-                                    token = ci.get("text", "")
-                                    current_chunks[msg_id] = token
-                                    if token:
-                                        yield token
-                        continue
-
-                    if op == "append" and "/contentChunks" in path:
-                        if isinstance(val, str) and val:
-                            current_chunks[msg_id] = current_chunks.get(msg_id, "") + val
-                            yield val
+        self._log(f"Stream raw ({total} bytes)")
 
     def _rotate_anonymous_id(self) -> None:
         """Generate a new stableAnonymousIdentifier (resets the 5-msg daily quota)."""

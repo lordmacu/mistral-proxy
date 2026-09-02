@@ -32,6 +32,7 @@ from api.schemas import (
     Choice, Delta, Message, Usage,
 )
 from api.client import get_client, relogin
+from mistral_anon_chat import RateLimitError
 
 router = APIRouter(tags=["chat"])
 
@@ -204,8 +205,25 @@ def _stream_tokens(client, resp, completion_id: str, chat_id: str, model: str) -
         yield "data: [DONE]\n\n"
         return
 
-    for token in client._parse_stream(resp):
-        yield make_chunk({"content": token})
+    # `_parse_stream` is now line-incremental (see mistral_anon_chat.py), so a
+    # type-6 error can surface AFTER tokens have already gone out over this
+    # response -- unlike before, when the whole body was buffered first and a
+    # rate limit or API error was always raised before any token was yielded.
+    # By the time that happens the 200 and the SSE headers are already on the
+    # wire, so there is no status code left to change: the failure has to
+    # reach the client as an error EVENT on the stream it is already reading,
+    # the same way ~/deep/server.py handles a BusinessError mid-stream.
+    try:
+        for token in client._parse_stream(resp):
+            yield make_chunk({"content": token})
+    except RateLimitError as e:
+        yield f"data: {json.dumps({'error': {'message': f'rate limited, retry after {e.retry_after}s', 'type': 'rate_limit_error'}})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+    except RuntimeError as e:
+        yield f"data: {json.dumps({'error': {'message': str(e), 'type': 'api_error'}})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
 
     yield make_chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"
